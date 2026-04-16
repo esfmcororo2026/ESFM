@@ -25,7 +25,40 @@ window.addEventListener('DOMContentLoaded', async function () {
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
     await tursodb.initializeData();
     await cargarTodo();
+    await recuperarSesionActiva();
 });
+
+async function recuperarSesionActiva() {
+    const guardado = localStorage.getItem('ruleta_sesion_activa');
+    if (!guardado) return;
+    try {
+        const datos = JSON.parse(guardado);
+        if (datos.docenteId !== String(currentUser.id)) {
+            localStorage.removeItem('ruleta_sesion_activa');
+            return;
+        }
+        // Verificar que la sesión sigue activa en BD
+        const r = await tursodb.query(
+            `SELECT * FROM ruleta_sesiones WHERE id = ? AND activa = 1`,
+            [datos.sesionId]
+        );
+        if (!r.rows || r.rows.length === 0) {
+            localStorage.removeItem('ruleta_sesion_activa');
+            return;
+        }
+        // Restaurar sesión
+        sesionId = datos.sesionId;
+        document.getElementById('sel-especialidad').value = datos.especialidad;
+        cargarAnios();
+        document.getElementById('sel-anio').value = datos.anio;
+        cargarMaterias();
+        document.getElementById('sel-materia').value = datos.materia;
+        document.getElementById('btn-iniciar').style.display = 'block';
+        showToast(`Sesión activa encontrada: ${datos.especialidad} - ${datos.anio}`, 'info', 4000);
+    } catch(e) {
+        localStorage.removeItem('ruleta_sesion_activa');
+    }
+}
 
 // Carga todo en 1 sola peticion HTTP
 async function cargarTodo() {
@@ -132,7 +165,13 @@ async function iniciarRuleta() {
 
     if (sesionResult.rows && sesionResult.rows.length > 0) {
         sesionId = sesionResult.rows[0].id;
+        showToast('Retomando sesión activa', 'info');
     } else {
+        // Cerrar cualquier sesión activa anterior del mismo grupo (limpieza)
+        await tursodb.query(
+            `UPDATE ruleta_sesiones SET activa = 0 WHERE docente_id = ? AND especialidad = ? AND anio_formacion = ? AND materia = ? AND activa = 1`,
+            [String(currentUser.id), especialidad, anio, materia]
+        );
         // Crear nueva sesión
         sesionId = Date.now().toString() + Math.random().toString(36).substr(2,4);
         const fechaLocal = new Date();
@@ -142,6 +181,11 @@ async function iniciarRuleta() {
             [sesionId, String(currentUser.id), especialidad, anio, materia, fecha, estudiantes.length]
         );
     }
+
+    // Guardar sesionId en localStorage para sobrevivir recargas
+    localStorage.setItem('ruleta_sesion_activa', JSON.stringify({
+        sesionId, especialidad, anio, materia, docenteId: String(currentUser.id)
+    }));
 
     // Cargar quiénes ya participaron en esta sesión
     await cargarPendientes(especialidad, anio);
@@ -576,6 +620,7 @@ async function reiniciarRuleta() {
     pendientes = [];
     anguloActual = 0;
     girando = false;
+    localStorage.removeItem('ruleta_sesion_activa');
 
     document.getElementById('ganador-box').style.display = 'none';
     document.getElementById('vista-ruleta').style.display = 'none';

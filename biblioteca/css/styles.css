@@ -8,14 +8,14 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: url('/esfmcororo/fondo_escritorio.jpg') center center / cover fixed no-repeat;
+    background: url('/ESFM/fondo_escritorio.jpg') center center / cover fixed no-repeat;
     min-height: 100vh;
     color: #333;
 }
 
 @media (max-width: 768px) {
     body {
-        background: url('/esfmcororo/fondo_movil.png') center top / cover scroll no-repeat;
+        background: url('/ESFM/fondo_movil.png') center top / cover scroll no-repeat;
     }
 }
 

@@ -1,8 +1,8 @@
 // ADAPTADOR TURSO - Base de datos en la nube
 class TursoDB {
     constructor() {
-        this.dbUrl = 'https://sfemcororo-sfemcororo.aws-us-east-1.turso.io';
-        this.authToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJnaWQiOiJkYjIyYTE4ZC1kYTUxLTQwMTUtOTcyYS05YWUxODY3NGEyNmQiLCJpYXQiOjE3NzMxODg1NDgsInJpZCI6IjNlMzZmY2I1LTZiN2MtNGMxNi05MjIyLWNiYzJkMmE3NjgzNSJ9.5heqiZARkmz9IvWF8GeV-5Jb9RWIJePjbgLrxYjIYMG4otOuAiW-2WeKpEUvqsXbk2oh5V6M4s_-_9sxAaIZDQ';
+        this.dbUrl = 'https://esfm-esfmbolivar.aws-us-east-1.turso.io';
+        this.authToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJnaWQiOiIyMmFhMDJhMS03YmJmLTQxN2QtYTNkYi0yNGJjN2JhZDA2MDUiLCJpYXQiOjE3NzYzMDA5MjgsInJpZCI6IjNmMGU1NDA3LTExMzMtNDI1MC05ZmJlLTgzN2M1YmRkOTE0MSJ9.rVNAPsQAQ7sZhNhaaa7A4KHQM2dw9Hn1vim9HOCPs4yiIqYmofaLceIsmGYCBS8t1pkigGq52BDNnUjcWfHyBQ';
         
         this.auth = {
             signInWithPassword: async ({ email, password }) => {

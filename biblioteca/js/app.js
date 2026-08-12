@@ -490,10 +490,19 @@ async function exportarReporteExcel() {
 
 let html5QrCodeBib = null;
 let isScanningBib = false;
+let isFlashOnBib = false;
 
 function startCameraBib() {
     const container = document.getElementById('scanner-container-bib');
     const btnCamera = document.getElementById('btn-camera-bib');
+    const btnFlash = document.getElementById('btn-flash-bib');
+
+    if (btnFlash) {
+        btnFlash.style.display = 'none';
+        btnFlash.className = 'btn-secondary';
+        btnFlash.textContent = '⚡ Flash';
+    }
+    isFlashOnBib = false;
 
     // Si ya está activa, detener
     if (html5QrCodeBib) {
@@ -518,7 +527,9 @@ function startCameraBib() {
             { fps: 10, qrbox: { width: 250, height: 250 } },
             onQrScanBib,
             () => {}
-        ).catch(() => {
+        ).then(() => {
+            if (btnFlash) btnFlash.style.display = 'inline-block';
+        }).catch(() => {
             container.innerHTML = `<div style="padding:20px; color:#dc3545; background:#f8d7da; border-radius:8px; text-align:center;">❌ No se pudo acceder a la cámara.<br><small>Verifica los permisos del navegador</small></div>`;
             btnCamera.className = 'btn-secondary';
             btnCamera.textContent = '📷 Cámara';
@@ -532,6 +543,14 @@ function showFileUploadBib() {
     const photoTools = document.getElementById('photo-tools-bib');
     const btnCamera = document.getElementById('btn-camera-bib');
     const btnFile = document.getElementById('btn-file-bib');
+    const btnFlash = document.getElementById('btn-flash-bib');
+
+    if (btnFlash) {
+        btnFlash.style.display = 'none';
+        btnFlash.className = 'btn-secondary';
+        btnFlash.textContent = '⚡ Flash';
+    }
+    isFlashOnBib = false;
 
     if (html5QrCodeBib) {
         if (html5QrCodeBib.isScanning) html5QrCodeBib.stop().catch(() => {});
@@ -540,12 +559,55 @@ function showFileUploadBib() {
 
     container.innerHTML = '';
     container.style.display = 'none';
-    photoTools.style.display = 'block';
-    document.getElementById('qr-file-input-bib').value = '';
+    if (photoTools) photoTools.style.display = 'block';
+    const fileInput = document.getElementById('qr-file-input-bib');
+    if (fileInput) fileInput.value = '';
     btnCamera.className = 'btn-secondary';
     btnCamera.textContent = '📷 Cámara';
     btnFile.className = 'btn-primary';
     btnFile.textContent = '📁 Cargar Foto Activo';
+}
+
+async function toggleFlashBib() {
+    if (!html5QrCodeBib || !html5QrCodeBib.isScanning) {
+        alert('La cámara no está activa.');
+        return;
+    }
+
+    const btnFlash = document.getElementById('btn-flash-bib');
+    const targetState = !isFlashOnBib;
+
+    try {
+        if (typeof html5QrCodeBib.applyVideoConstraints === 'function') {
+            await html5QrCodeBib.applyVideoConstraints({
+                advanced: [{ torch: targetState }]
+            });
+            isFlashOnBib = targetState;
+        } else {
+            const videoElement = document.querySelector('#camera-reader-bib video');
+            if (videoElement && videoElement.srcObject) {
+                const track = videoElement.srcObject.getVideoTracks()[0];
+                if (track) {
+                    await track.applyConstraints({
+                        advanced: [{ torch: targetState }]
+                    });
+                    isFlashOnBib = targetState;
+                } else {
+                    throw new Error('No se encontró la pista de video');
+                }
+            } else {
+                throw new Error('No se encontró el elemento de video');
+            }
+        }
+
+        if (btnFlash) {
+            btnFlash.textContent = isFlashOnBib ? '⚡ Flash ON' : '⚡ Flash';
+            btnFlash.className = isFlashOnBib ? 'btn-warning' : 'btn-secondary';
+        }
+    } catch (err) {
+        console.error('❌ Error al alternar linterna/flash:', err);
+        alert('⚡ No se pudo activar el flash. Es posible que esta cámara o dispositivo no lo soporte.');
+    }
 }
 
 function processImageBib() {

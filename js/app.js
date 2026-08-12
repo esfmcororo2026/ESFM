@@ -1,6 +1,7 @@
 let html5QrCode = null;
 let isScanning = false;
 let isFirstScan = true; // Nueva variable para controlar el primer escaneo
+let isFlashOn = false;
 let currentUser = null;
 let currentProfile = null;
 let currentEventId = null;
@@ -1159,6 +1160,14 @@ function startScanner() {
     // Configurar eventos de los botones
     document.getElementById('btn-camera').onclick = startCameraScanner;
     document.getElementById('btn-file').onclick = showFileUpload;
+    const btnFlash = document.getElementById('btn-flash');
+    if (btnFlash) {
+        btnFlash.onclick = toggleFlash;
+        btnFlash.style.display = 'none';
+        btnFlash.className = 'btn-secondary';
+        btnFlash.textContent = '⚡ Flash';
+    }
+    isFlashOn = false;
     
     // Configurar botón de procesar imagen
     const btnProcessImage = document.getElementById('btn-process-image');
@@ -1208,6 +1217,13 @@ function startCameraScanner() {
     
     const scannerContainer = document.getElementById('scanner-container');
     const photoTools = document.getElementById('photo-tools');
+    const btnFlash = document.getElementById('btn-flash');
+    if (btnFlash) {
+        btnFlash.style.display = 'none';
+        btnFlash.className = 'btn-secondary';
+        btnFlash.textContent = '⚡ Flash';
+    }
+    isFlashOn = false;
     
     // PASO 1: Detener cámara anterior si existe
     if (html5QrCode) {
@@ -1274,6 +1290,9 @@ function startCameraScanner() {
             }
         ).then(() => {
             console.log('✅ Cámara iniciada correctamente');
+            if (btnFlash) {
+                btnFlash.style.display = 'inline-block';
+            }
         }).catch(err => {
             console.error('❌ Error iniciando cámara:', err);
             if (cameraReader) {
@@ -1296,6 +1315,13 @@ function showFileUpload() {
     
     const scannerContainer = document.getElementById('scanner-container');
     const photoTools = document.getElementById('photo-tools');
+    const btnFlash = document.getElementById('btn-flash');
+    if (btnFlash) {
+        btnFlash.style.display = 'none';
+        btnFlash.className = 'btn-secondary';
+        btnFlash.textContent = '⚡ Flash';
+    }
+    isFlashOn = false;
     
     // PASO 1: Detener y limpiar cámara
     if (html5QrCode) {
@@ -1346,6 +1372,48 @@ function showFileUpload() {
     }
     
     console.log('📁 Modo CARGAR FOTO activado');
+}
+
+async function toggleFlash() {
+    if (!html5QrCode || !html5QrCode.isScanning) {
+        alert('La cámara no está activa.');
+        return;
+    }
+
+    const btnFlash = document.getElementById('btn-flash');
+    const targetState = !isFlashOn;
+
+    try {
+        if (typeof html5QrCode.applyVideoConstraints === 'function') {
+            await html5QrCode.applyVideoConstraints({
+                advanced: [{ torch: targetState }]
+            });
+            isFlashOn = targetState;
+        } else {
+            const videoElement = document.querySelector('#camera-reader video');
+            if (videoElement && videoElement.srcObject) {
+                const track = videoElement.srcObject.getVideoTracks()[0];
+                if (track) {
+                    await track.applyConstraints({
+                        advanced: [{ torch: targetState }]
+                    });
+                    isFlashOn = targetState;
+                } else {
+                    throw new Error('No se encontró la pista de video');
+                }
+            } else {
+                throw new Error('No se encontró el elemento de video');
+            }
+        }
+
+        if (btnFlash) {
+            btnFlash.textContent = isFlashOn ? '⚡ Flash ON' : '⚡ Flash';
+            btnFlash.className = isFlashOn ? 'btn-warning' : 'btn-secondary';
+        }
+    } catch (err) {
+        console.error('❌ Error al alternar linterna/flash:', err);
+        alert('⚡ No se pudo activar el flash. Es posible que esta cámara o dispositivo no lo soporte.');
+    }
 }
 
 function processSelectedImage() {

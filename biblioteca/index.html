@@ -29,15 +29,55 @@
         </div>
         <div class="container">
             <div class="modules-grid">
+                <div class="module-card" onclick="showEstadistica()">
+                    <div class="module-icon">📊</div>
+                    <h3>Estadística</h3>
+                    <p>Gestión de registros, reportes y eventos de biblioteca</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECCIÓN ESTADÍSTICA -->
+    <div id="estadistica-section" class="section hidden">
+        <div class="header">
+            <h1>📊 Sección de Estadística</h1>
+            <div class="header-right">
+                <button onclick="showDashboardBib()" class="btn-secondary">← Volver a Biblioteca</button>
+            </div>
+        </div>
+        <div class="container">
+            <!-- Tarjeta de Resumen / KPIs -->
+            <div class="card" style="margin-bottom: 20px;">
+                <h3 style="margin-bottom: 15px; color: #333;">📈 Resumen General</h3>
+                <div id="estadistica-kpis" style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 150px; background: #e8f4fd; padding: 15px; border-radius: 8px; text-align: center;">
+                        <span style="font-size: 1.8rem; font-weight: bold; color: #007bff;" id="kpi-visitas-hoy">0</span>
+                        <div style="font-size: 13px; color: #555;">Visitas de hoy</div>
+                    </div>
+                    <div style="flex: 1; min-width: 150px; background: #e8f5e8; padding: 15px; border-radius: 8px; text-align: center;">
+                        <span style="font-size: 1.1rem; font-weight: bold; color: #28a745;" id="kpi-evento-activo">Ninguno</span>
+                        <div style="font-size: 13px; color: #555;">Evento activo</div>
+                    </div>
+                    <div style="flex: 1; min-width: 150px; background: #fff3cd; padding: 15px; border-radius: 8px; text-align: center;">
+                        <span style="font-size: 1.8rem; font-weight: bold; color: #856404;" id="kpi-total-eventos">0</span>
+                        <div style="font-size: 13px; color: #555;">Eventos registrados</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Menú de Opciones Segmentadas -->
+            <h3 style="margin-bottom: 15px; color: #333;">📋 Módulos de Estadística</h3>
+            <div class="modules-grid">
                 <div class="module-card" onclick="showRegistro()">
                     <div class="module-icon">✏️</div>
                     <h3>Registro</h3>
-                    <p>Registrar visita ingresando CI</p>
+                    <p>Registrar visita ingresando CI o escáner QR</p>
                 </div>
                 <div class="module-card" onclick="showReporte()">
                     <div class="module-icon">📋</div>
                     <h3>Reporte</h3>
-                    <p>Ver lista de visitas por evento</p>
+                    <p>Ver estadísticas de visitas y exportar a Excel</p>
                 </div>
                 <div class="module-card" onclick="showEventos()">
                     <div class="module-icon">📅</div>
@@ -53,7 +93,7 @@
         <div class="header">
             <h1>📚 Registro de Visita</h1>
             <div class="header-right">
-                <button onclick="showDashboardBib()" class="btn-secondary">← Volver</button>
+                <button onclick="showEstadistica()" class="btn-secondary">← Volver</button>
             </div>
         </div>
         <div class="container">
@@ -87,7 +127,7 @@
         <div class="header">
             <h1>📋 Reporte de Visitas</h1>
             <div class="header-right">
-                <button onclick="showDashboardBib()" class="btn-secondary">← Volver</button>
+                <button onclick="showEstadistica()" class="btn-secondary">← Volver</button>
             </div>
         </div>
         <div class="container">
@@ -109,7 +149,7 @@
         <div class="header">
             <h1>📅 Eventos Mensuales</h1>
             <div class="header-right">
-                <button onclick="showDashboardBib()" class="btn-secondary">← Volver</button>
+                <button onclick="showEstadistica()" class="btn-secondary">← Volver</button>
             </div>
         </div>
         <div class="container">
@@ -134,6 +174,6 @@
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/app.js?v=2026081202"></script>
+<script src="js/app.js?v=2026081203"></script>
 </body>
 </html>

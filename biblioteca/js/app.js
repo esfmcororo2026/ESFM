@@ -63,6 +63,47 @@ function showSection(id) {
 
 function showDashboardBib() { showSection('dashboard-biblioteca'); }
 
+// ========== ESTADÍSTICA ==========
+
+async function showEstadistica() {
+    showSection('estadistica-section');
+    await cargarMetricasEstadistica();
+}
+
+async function cargarMetricasEstadistica() {
+    try {
+        const eventoActivo = await obtenerEventoActivo();
+        const elEvento = document.getElementById('kpi-evento-activo');
+        if (elEvento) {
+            elEvento.textContent = eventoActivo ? eventoActivo.nombre : 'Ninguno';
+        }
+
+        const hoy = new Date().toISOString().split('T')[0];
+        let totalHoy = 0;
+        if (eventoActivo) {
+            const resHoy = await tursodb.query(
+                `SELECT COUNT(*) as cant FROM biblioteca_visitas WHERE evento_id = ? AND timestamp LIKE ?`,
+                [eventoActivo.id, `${hoy}%`]
+            );
+            if (resHoy.rows && resHoy.rows[0]) {
+                totalHoy = resHoy.rows[0].cant || 0;
+            }
+        }
+        const elVisitas = document.getElementById('kpi-visitas-hoy');
+        if (elVisitas) elVisitas.textContent = totalHoy;
+
+        const resEv = await tursodb.query(`SELECT COUNT(*) as cant FROM biblioteca_eventos`);
+        let totalEventos = 0;
+        if (resEv.rows && resEv.rows[0]) {
+            totalEventos = resEv.rows[0].cant || 0;
+        }
+        const elTotalEv = document.getElementById('kpi-total-eventos');
+        if (elTotalEv) elTotalEv.textContent = totalEventos;
+    } catch (err) {
+        console.error('Error cargando métricas de estadística:', err);
+    }
+}
+
 // ========== EVENTOS ==========
 
 async function showEventos() {

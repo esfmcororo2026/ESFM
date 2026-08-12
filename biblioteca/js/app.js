@@ -498,7 +498,6 @@ function startCameraBib() {
     const btnFlash = document.getElementById('btn-flash-bib');
 
     if (btnFlash) {
-        btnFlash.style.display = 'none';
         btnFlash.className = 'btn-secondary';
         btnFlash.textContent = '⚡ Flash';
     }
@@ -527,9 +526,7 @@ function startCameraBib() {
             { fps: 10, qrbox: { width: 250, height: 250 } },
             onQrScanBib,
             () => {}
-        ).then(() => {
-            if (btnFlash) btnFlash.style.display = 'inline-block';
-        }).catch(() => {
+        ).catch(() => {
             container.innerHTML = `<div style="padding:20px; color:#dc3545; background:#f8d7da; border-radius:8px; text-align:center;">❌ No se pudo acceder a la cámara.<br><small>Verifica los permisos del navegador</small></div>`;
             btnCamera.className = 'btn-secondary';
             btnCamera.textContent = '📷 Cámara';
@@ -546,7 +543,6 @@ function showFileUploadBib() {
     const btnFlash = document.getElementById('btn-flash-bib');
 
     if (btnFlash) {
-        btnFlash.style.display = 'none';
         btnFlash.className = 'btn-secondary';
         btnFlash.textContent = '⚡ Flash';
     }
@@ -570,7 +566,7 @@ function showFileUploadBib() {
 
 async function toggleFlashBib() {
     if (!html5QrCodeBib || !html5QrCodeBib.isScanning) {
-        alert('La cámara no está activa.');
+        alert('Primero debes activar la cámara presionando "📷 Cámara".');
         return;
     }
 

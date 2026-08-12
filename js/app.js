@@ -1163,7 +1163,6 @@ function startScanner() {
     const btnFlash = document.getElementById('btn-flash');
     if (btnFlash) {
         btnFlash.onclick = toggleFlash;
-        btnFlash.style.display = 'none';
         btnFlash.className = 'btn-secondary';
         btnFlash.textContent = '⚡ Flash';
     }
@@ -1219,7 +1218,6 @@ function startCameraScanner() {
     const photoTools = document.getElementById('photo-tools');
     const btnFlash = document.getElementById('btn-flash');
     if (btnFlash) {
-        btnFlash.style.display = 'none';
         btnFlash.className = 'btn-secondary';
         btnFlash.textContent = '⚡ Flash';
     }
@@ -1290,9 +1288,6 @@ function startCameraScanner() {
             }
         ).then(() => {
             console.log('✅ Cámara iniciada correctamente');
-            if (btnFlash) {
-                btnFlash.style.display = 'inline-block';
-            }
         }).catch(err => {
             console.error('❌ Error iniciando cámara:', err);
             if (cameraReader) {
@@ -1317,7 +1312,6 @@ function showFileUpload() {
     const photoTools = document.getElementById('photo-tools');
     const btnFlash = document.getElementById('btn-flash');
     if (btnFlash) {
-        btnFlash.style.display = 'none';
         btnFlash.className = 'btn-secondary';
         btnFlash.textContent = '⚡ Flash';
     }
@@ -1376,7 +1370,7 @@ function showFileUpload() {
 
 async function toggleFlash() {
     if (!html5QrCode || !html5QrCode.isScanning) {
-        alert('La cámara no está activa.');
+        alert('Primero debes activar la cámara haciendo clic en "📷 Cámara".');
         return;
     }
 

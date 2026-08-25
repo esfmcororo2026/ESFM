@@ -1342,9 +1342,25 @@ async function renderTablaCatalogo(lista) {
 
         const ejems = catalogoEjemplaresMap[b.id] || [];
         const codigosList = ejems.map(e => {
-            const color = e.estado === 'disponible' ? '#155724' : '#721c24';
-            const bg = e.estado === 'disponible' ? '#d4edda' : '#f8d7da';
-            return `<span style="font-family:monospace; background:${bg}; color:${color}; padding:2px 6px; border-radius:4px; margin-right:4px; font-weight:bold; font-size:12px;" title="Estado: ${e.estado}">${e.codigo_ejemplar}</span>`;
+            const st = (e.estado || 'disponible').toLowerCase();
+            let bg = '#d4edda';       // Verde (Disponible)
+            let color = '#155724';
+            let border = '#c3e6cb';
+            let labelEstado = 'Disponible';
+
+            if (st === 'prestado') {
+                bg = '#f8d7da';       // Rojo (Prestado)
+                color = '#721c24';
+                border = '#f5c6cb';
+                labelEstado = 'Prestado';
+            } else if (st === 'reservado' || st === 'reservada') {
+                bg = '#e2e3e5';       // Plomo / Gris (Reservado)
+                color = '#383d41';
+                border = '#d6d8db';
+                labelEstado = 'Reservado';
+            }
+
+            return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:12px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
         }).join('');
 
         return `

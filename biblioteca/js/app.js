@@ -87,6 +87,9 @@ async function crearTablasBiblioteca() {
             fecha_devolucion_item TEXT
         )
     `);
+    try {
+        await tursodb.query(`ALTER TABLE biblioteca_prestamo_detalles ADD COLUMN ejemplar_id TEXT`);
+    } catch (e) { /* Columna ya existe */ }
     await tursodb.query(`
         CREATE TABLE IF NOT EXISTS biblioteca_reservas (
             id TEXT PRIMARY KEY,
@@ -1161,12 +1164,11 @@ async function renderTablaMonitoreo(lista) {
             `SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`,
             [p.id]
         );
-        const detalles = detRes.rows || [];
-
         const librosText = detalles.map(d => {
-            const st = d.estado_item === 'devuelto' ? ' <small style="color:green;">(Devuelto)</small>' : '';
-            return `• <strong>[${d.libro_codigo}]</strong> ${d.libro_titulo}${st}`;
-        }).join('<br>');
+            const isDevuelto = d.estado_item === 'devuelto';
+            const titleOnly = `${d.libro_titulo}${isDevuelto ? ' (DEVUELTO)' : ''}`;
+            return `<span class="book-code-chip ${isDevuelto ? 'devuelto' : ''}" data-tooltip="${escapeHtml(titleOnly)}" title="${escapeHtml(titleOnly)}">${d.libro_codigo}${isDevuelto ? ' ✓' : ''}</span>`;
+        }).join(' ');
 
         let estadoBadge = '';
         if (p.estado === 'devuelto') {
@@ -1650,61 +1652,29 @@ function procesarArchivoExcel(event) {
                 const row = rawRows[r];
                 if (!row || row.length === 0) continue;
 
-                let cod = '';
-                let num = '';
-                let titulo = '';
-                let autor = '';
-                let editorial = '';
-                let anio = null;
-                let cantEjem = 1;
-                let estado = 'Bueno';
+                let codRaw = String(row[colMap.cod !== -1 ? colMap.cod : 0] || '').trim();
+                let numRaw = String(row[colMap.num !== -1 ? colMap.num : 1] || '').trim();
+                let autor = colMap.autor !== -1 ? String(row[colMap.autor] || '').trim() : String(row[2] || '').trim();
+                let titulo = colMap.titulo !== -1 ? String(row[colMap.titulo] || '').trim() : String(row[3] || '').trim();
+                let editorial = colMap.editorial !== -1 ? String(row[colMap.editorial] || '').trim() : String(row[4] || '').trim();
+                let anio = colMap.anio !== -1 ? (parseInt(row[colMap.anio]) || null) : (parseInt(row[5]) || null);
+                let cantEjem = colMap.ejem !== -1 ? (parseInt(row[colMap.ejem]) || 1) : (parseInt(row[6]) || 1);
+                let estadoRaw = colMap.estado !== -1 ? String(row[colMap.estado] || 'Bueno').trim() : String(row[7] || 'Bueno').trim();
 
-                // Si encontramos cabecera explicita
-                if (headerRowIndex !== -1 && colMap.titulo !== -1) {
-                    cod = colMap.cod !== -1 ? String(row[colMap.cod] || '').trim() : '';
-                    num = colMap.num !== -1 ? String(row[colMap.num] || '').trim() : '';
-                    titulo = String(row[colMap.titulo] || '').trim();
-                    autor = colMap.autor !== -1 ? String(row[colMap.autor] || '').trim() : '';
-                    editorial = colMap.editorial !== -1 ? String(row[colMap.editorial] || '').trim() : '';
-                    anio = colMap.anio !== -1 ? parseInt(row[colMap.anio]) || null : null;
-                    cantEjem = colMap.ejem !== -1 ? parseInt(row[colMap.ejem]) || 1 : 1;
-                    estado = colMap.estado !== -1 ? String(row[colMap.estado] || 'Bueno').trim() : 'Bueno';
+                // Actualizar código de área actual si la celda A contiene un número de área válido (1 o 2 dígitos)
+                if (codRaw && /^\d+$/.test(codRaw) && codRaw.length <= 2) {
+                    currentAreaCod = pad2(codRaw);
                 }
 
-                // Si no se encontró título por cabeceras, probar el mapeo por columnas estándar (A=Estado, B=Nº, C=COD, D=Autor, E=Título, F=Año, G=Ejemplares, H=Editorial)
-                if (!titulo) {
-                    const candidateNum = String(row[1] || '').trim();
-                    const candidateCod = String(row[2] || '').trim();
-                    const candidateAutor = String(row[3] || '').trim();
-                    const candidateTitulo = String(row[4] || row[3] || '').trim();
-                    const candidateAnio = parseInt(row[5]) || null;
-                    const candidateEjem = parseInt(row[6]) || 1;
-                    const candidateEdit = String(row[7] || '').trim();
-                    const candidateEstado = String(row[0] || 'Bueno').trim();
-
-                    if (candidateNum && candidateTitulo && candidateTitulo.length > 2) {
-                        num = candidateNum;
-                        cod = candidateCod || '01';
-                        autor = candidateAutor;
-                        titulo = candidateTitulo;
-                        anio = candidateAnio;
-                        cantEjem = candidateEjem;
-                        editorial = candidateEdit;
-                        estado = candidateEstado.toUpperCase().includes('BUENO') || candidateEstado.toUpperCase().includes('ESTADO') ? 'Bueno' : candidateEstado;
-                    }
-                }
-
-                // Mantener o limpiar el código de área COD
-                if (cod && cod.length <= 10) currentAreaCod = cod;
-                else cod = currentAreaCod;
-
-                // Solo registrar filas con Nº y TÍTULO válidos
-                if (num && titulo && titulo.length > 2 && !num.toUpperCase().includes('Nº')) {
-                    if (!estado || estado === 'ESTADO') estado = 'Bueno';
+                // Un libro válido DEBE tener un número de libro numérico (Nº en Col B) y un título válido
+                if (/^\d+$/.test(numRaw) && titulo && titulo.length > 2 && !numRaw.toUpperCase().includes('Nº')) {
+                    const cod = pad2(codRaw && /^\d+$/.test(codRaw) ? codRaw : currentAreaCod);
+                    const num = pad2(numRaw);
+                    const estado = estadoRaw.toUpperCase().includes('BUENO') || estadoRaw.toUpperCase().includes('ESTADO') ? 'Bueno' : (estadoRaw || 'Bueno');
 
                     const codigosGenerados = [];
                     for (let i = 1; i <= cantEjem; i++) {
-                        codigosGenerados.push(`${cod}${num}${i}`);
+                        codigosGenerados.push(`${cod}${num}${pad2(i)}`);
                     }
                     totalEjemplaresCount += cantEjem;
 
@@ -1712,8 +1682,8 @@ function procesarArchivoExcel(event) {
                         cod,
                         num,
                         titulo,
-                        autor,
-                        editorial,
+                        autor: autor || 'N/A',
+                        editorial: editorial || 'N/A',
                         anio,
                         cantEjem,
                         estado,
@@ -1794,7 +1764,7 @@ async function confirmarCargaMasivaExcel() {
         creadosLibros++;
 
         for (let i = 1; i <= r.cantEjem; i++) {
-            const codigoEjem = `${r.cod}${r.num}${i}`;
+            const codigoEjem = `${r.cod}${r.num}${pad2(i)}`;
             const ejemId = `${libroId}-${i}`;
             queriesBatch.push({
                 sql: `INSERT INTO biblioteca_ejemplares (id, libro_id, codigo_ejemplar, ejemplar_num, estado, estado_fisico)

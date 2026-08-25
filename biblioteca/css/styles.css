@@ -394,3 +394,89 @@ body {
     box-shadow: 0 5px 15px rgba(0,0,0,0.08);
 }
 
+/* Tooltip y Chips de Código de Libros Prestados */
+.book-code-chip {
+    display: inline-block;
+    margin: 2px 4px 2px 0;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #e7f1ff;
+    color: #0b5ed7;
+    border: 1px solid #b6d4fe;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 13px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease-in-out;
+}
+
+.book-code-chip:hover {
+    background: #0d6efd;
+    color: #ffffff;
+    border-color: #0a58ca;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(13, 110, 253, 0.25);
+    z-index: 10;
+}
+
+.book-code-chip[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    background: #1e293b;
+    color: #ffffff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: normal;
+    min-width: 220px;
+    max-width: 320px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 1000;
+}
+
+.book-code-chip[data-tooltip]::before {
+    content: '';
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    border-width: 6px 6px 0 6px;
+    border-style: solid;
+    border-color: #1e293b transparent transparent transparent;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 1001;
+}
+
+.book-code-chip[data-tooltip]:hover::after,
+.book-code-chip[data-tooltip]:hover::before {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.book-code-chip.devuelto {
+    background: #e2e3e5;
+    color: #6c757d;
+    border-color: #d6d8db;
+}
+
+.book-code-chip.devuelto:hover {
+    background: #6c757d;
+    color: #ffffff;
+}
+
+

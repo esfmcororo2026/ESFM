@@ -38,7 +38,8 @@ async function crearTablasBiblioteca() {
     await tursodb.query(`
         CREATE TABLE IF NOT EXISTS biblioteca_libros (
             id TEXT PRIMARY KEY,
-            codigo_libro TEXT UNIQUE NOT NULL,
+            area_cod TEXT NOT NULL,
+            libro_num TEXT NOT NULL,
             titulo TEXT NOT NULL,
             autor TEXT,
             editorial TEXT,
@@ -46,7 +47,17 @@ async function crearTablasBiblioteca() {
             cantidad_total INTEGER DEFAULT 1,
             cantidad_disponible INTEGER DEFAULT 1,
             estado_fisico TEXT DEFAULT 'Bueno',
-            estado_disponibilidad TEXT DEFAULT 'disponible',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_ejemplares (
+            id TEXT PRIMARY KEY,
+            libro_id TEXT NOT NULL,
+            codigo_ejemplar TEXT UNIQUE NOT NULL,
+            ejemplar_num INTEGER NOT NULL,
+            estado TEXT DEFAULT 'disponible',
+            estado_fisico TEXT DEFAULT 'Bueno',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `);
@@ -69,6 +80,7 @@ async function crearTablasBiblioteca() {
             id TEXT PRIMARY KEY,
             prestamo_id TEXT NOT NULL,
             libro_id TEXT NOT NULL,
+            ejemplar_id TEXT,
             libro_codigo TEXT NOT NULL,
             libro_titulo TEXT NOT NULL,
             estado_item TEXT DEFAULT 'prestado',
@@ -870,35 +882,67 @@ async function buscarUsuarioCarrito() {
     `;
 }
 
+// Helper: Previsualizar códigos de ejemplares en el formulario
+function actualizarPrevisualizacionCodigos() {
+    const areaCod = document.getElementById('book-input-cod')?.value.trim() || '';
+    const libroNum = document.getElementById('book-input-num')?.value.trim() || '';
+    const cant = parseInt(document.getElementById('book-input-ejemplares')?.value) || 1;
+    const prevEl = document.getElementById('book-code-preview');
+    if (!prevEl) return;
+
+    if (!areaCod || !libroNum) {
+        prevEl.textContent = 'Ingresa COD (Área), Nº y Nº EJEM. para previsualizar';
+        return;
+    }
+
+    const codigos = [];
+    for (let i = 1; i <= cant; i++) {
+        codigos.push(`${areaCod}${libroNum}${i}`);
+    }
+
+    if (codigos.length <= 5) {
+        prevEl.textContent = codigos.join(', ');
+    } else {
+        prevEl.textContent = `${codigos.slice(0, 4).join(', ')} ... ${codigos[codigos.length - 1]} (${cant} ejemplares)`;
+    }
+}
+
 async function buscarLibroParaCarrito() {
     const q = document.getElementById('cart-book-input').value.trim();
     const resultsEl = document.getElementById('cart-book-results');
     if (!q) { resultsEl.innerHTML = ''; return; }
 
-    resultsEl.innerHTML = '<p style="color:#666; font-size:13px;">Buscando libros...</p>';
-    const res = await tursodb.query(
-        `SELECT * FROM biblioteca_libros WHERE codigo_libro LIKE ? OR titulo LIKE ? OR autor LIKE ? LIMIT 10`,
-        [`%${q}%`, `%${q}%`, `%${q}%`]
+    resultsEl.innerHTML = '<p style="color:#666; font-size:13px;">Buscando ejemplares...</p>';
+
+    // Buscar ejemplares por código único de ejemplar, área, número o título del libro
+    const ejemRes = await tursodb.query(
+        `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado, l.id as libro_id, l.titulo, l.autor, l.area_cod, l.libro_num 
+         FROM biblioteca_ejemplares e 
+         JOIN biblioteca_libros l ON e.libro_id = l.id 
+         WHERE e.codigo_ejemplar LIKE ? OR l.titulo LIKE ? OR l.area_cod LIKE ? OR l.autor LIKE ?
+         LIMIT 15`,
+        [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
     );
 
-    if (!res.rows || res.rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron libros con esa búsqueda.</p>';
+    const rows = ejemRes.rows || [];
+    if (rows.length === 0) {
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron ejemplares con esa búsqueda.</p>';
         return;
     }
 
-    resultsEl.innerHTML = res.rows.map(b => {
-        const enCarrito = cartItems.some(i => i.id === b.id);
-        const disp = parseInt(b.cantidad_disponible !== null ? b.cantidad_disponible : (b.cantidad_total || 1));
-        const disabled = disp <= 0 || enCarrito;
-        const btnText = enCarrito ? 'En Carrito' : (disp <= 0 ? 'Agotado' : '+ Agregar');
+    resultsEl.innerHTML = rows.map(item => {
+        const enCarrito = cartItems.some(c => c.ejemId === item.ejem_id);
+        const estaDisponible = item.ejem_estado === 'disponible';
+        const disabled = !estaDisponible || enCarrito;
+        const btnText = enCarrito ? 'En Carrito' : (!estaDisponible ? `[${item.ejem_estado.toUpperCase()}]` : '+ Agregar');
 
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #eee; background:#fff;">
                 <div style="font-size:13px;">
-                    <strong>[${b.codigo_libro}]</strong> ${b.titulo}<br>
-                    <small style="color:#666;">Autor: ${b.autor || 'N/A'} | Disp: <span style="font-weight:bold; color:${disp > 0 ? 'green':'red'};">${disp}/${b.cantidad_total}</span></small>
+                    <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> ${item.titulo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
+                    <small style="color:#666;">Área: ${item.area_cod} | Libro Nº: ${item.libro_num} | Autor: ${item.autor || 'N/A'}</small>
                 </div>
-                <button onclick="agregarAlCarrito('${b.id}', '${escapeHtml(b.codigo_libro)}', '${escapeHtml(b.titulo)}', ${disp})" 
+                <button onclick="agregarAlCarrito('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})')" 
                         class="${disabled ? 'btn-secondary' : 'btn-success'}" 
                         style="padding:5px 10px; font-size:12px;" ${disabled ? 'disabled' : ''}>
                     ${btnText}
@@ -913,15 +957,15 @@ function escapeHtml(str) {
     return str.replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
 
-function agregarAlCarrito(id, codigo, titulo, disp) {
-    if (cartItems.some(i => i.id === id)) return;
-    cartItems.push({ id, codigo, titulo, disp });
+function agregarAlCarrito(ejemId, libroId, codigo, titulo) {
+    if (cartItems.some(i => i.ejemId === ejemId)) return;
+    cartItems.push({ ejemId, libroId, codigo, titulo });
     actualizarVistaCarrito();
     buscarLibroParaCarrito();
 }
 
-function removerDelCarrito(id) {
-    cartItems = cartItems.filter(i => i.id !== id);
+function removerDelCarrito(ejemId) {
+    cartItems = cartItems.filter(i => i.ejemId !== ejemId);
     actualizarVistaCarrito();
     buscarLibroParaCarrito();
 }
@@ -949,9 +993,8 @@ function actualizarVistaCarrito() {
         <div class="cart-item">
             <div>
                 <div class="cart-item-title">${index + 1}. [${item.codigo}] ${item.titulo}</div>
-                <div class="cart-item-sub">Stock disponible: ${item.disp}</div>
             </div>
-            <button onclick="removerDelCarrito('${item.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️ Quitar</button>
+            <button onclick="removerDelCarrito('${item.ejemId}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️ Quitar</button>
         </div>
     `).join('');
 }
@@ -962,7 +1005,7 @@ async function confirmarPrestamoCarrito() {
         return;
     }
     if (cartItems.length === 0) {
-        alert('⚠️ Agrega al menos un libro al carrito.');
+        alert('⚠️ Agrega al menos un ejemplar al carrito.');
         return;
     }
 
@@ -977,25 +1020,27 @@ async function confirmarPrestamoCarrito() {
         [prestamoId, cartUser.ci, cartUser.nombre, cartUser.tipo, fechaHoy, fechaDevolucionPrevista]
     );
 
-    // 2. Insertar Detalle de Libros y Actualizar Stock
+    // 2. Insertar Detalle de Libros y Marcar Ejemplar como 'prestado'
     for (const item of cartItems) {
-        const detalleId = `${prestamoId}-${item.id}`;
+        const detalleId = `${prestamoId}-${item.ejemId}`;
         await tursodb.query(
-            `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, libro_codigo, libro_titulo, estado_item)
-             VALUES (?, ?, ?, ?, ?, 'prestado')`,
-            [detalleId, prestamoId, item.id, item.codigo, item.titulo]
+            `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, ejemplar_id, libro_codigo, libro_titulo, estado_item)
+             VALUES (?, ?, ?, ?, ?, ?, 'prestado')`,
+            [detalleId, prestamoId, item.libroId, item.ejemId, item.codigo, item.titulo]
         );
 
-        // Descontar 1 de cantidad_disponible
-        const nDisp = Math.max(0, item.disp - 1);
-        const estadoDisp = nDisp === 0 ? 'agotado' : 'prestado_parcial';
-        await tursodb.query(
-            `UPDATE biblioteca_libros SET cantidad_disponible = ?, estado_disponibilidad = ? WHERE id = ?`,
-            [nDisp, estadoDisp, item.id]
-        );
+        // Actualizar estado del ejemplar
+        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'prestado' WHERE id = ?`, [item.ejemId]);
+
+        // Actualizar stock disponible en biblioteca_libros
+        const libRes = await tursodb.query(`SELECT cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [item.libroId]);
+        if (libRes.rows && libRes.rows.length > 0) {
+            const currentDisp = libRes.rows[0].cantidad_disponible || 0;
+            await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, currentDisp - 1), item.libroId]);
+        }
     }
 
-    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} libro(s) a ${cartUser.nombre}.\nFecha de devolución: ${formatearFecha(fechaDevolucionPrevista)}`);
+    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} ejemplar(es) a ${cartUser.nombre}.\nFecha de devolución: ${formatearFecha(fechaDevolucionPrevista)}`);
 
     // Resetear formulario y redirigir a monitoreo
     cartUser = null;
@@ -1116,15 +1161,17 @@ async function devolverPrestamoCompleto(prestamoId) {
                 [fechaHoy, d.id]
             );
 
+            // Restaurar estado del ejemplar
+            if (d.ejemplar_id) {
+                await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
+            }
+
+            // Incrementar stock disponible en la obra
             const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
             if (libRes.rows && libRes.rows.length > 0) {
                 const lib = libRes.rows[0];
-                const nDisp = (lib.cantidad_disponible || 0) + 1;
-                const estadoDisp = nDisp >= lib.cantidad_total ? 'disponible' : 'prestado_parcial';
-                await tursodb.query(
-                    `UPDATE biblioteca_libros SET cantidad_disponible = ?, estado_disponibilidad = ? WHERE id = ?`,
-                    [nDisp, estadoDisp, d.libro_id]
-                );
+                const nDisp = Math.min(lib.cantidad_total || 1, (lib.cantidad_disponible || 0) + 1);
+                await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
             }
         }
     }
@@ -1134,7 +1181,7 @@ async function devolverPrestamoCompleto(prestamoId) {
         [fechaHoy, prestamoId]
     );
 
-    alert('✅ Devolución registrada correctamente. Stock restaurado.');
+    alert('✅ Devolución registrada correctamente. Ejemplares y stock restaurados.');
     await cargarMonitoreoPrestamos();
 }
 
@@ -1175,44 +1222,52 @@ async function cargarCatalogoLibros() {
     const tbody = document.getElementById('catalogo-table-body');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>';
 
     const res = await tursodb.query(`SELECT * FROM biblioteca_libros ORDER BY created_at DESC`);
     if (!res.rows || res.rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No hay libros registrados en el catálogo.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#888;">No hay libros registrados en el catálogo.</td></tr>';
         return;
     }
 
     catalogoLibrosCache = res.rows;
-    renderTablaCatalogo(catalogoLibrosCache);
+    await renderTablaCatalogo(catalogoLibrosCache);
 }
 
-function renderTablaCatalogo(lista) {
+async function renderTablaCatalogo(lista) {
     const tbody = document.getElementById('catalogo-table-body');
     if (!tbody) return;
 
     if (lista.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No se encontraron libros.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#888;">No se encontraron libros.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = lista.map(b => {
+    let rowsHtml = '';
+    for (const b of lista) {
         const total = b.cantidad_total || 1;
         const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
-        let badgeDisp = '<span class="badge badge-success">Disponible</span>';
-        if (disp === 0) badgeDisp = '<span class="badge badge-danger">Agotado</span>';
-        else if (disp < total) badgeDisp = '<span class="badge badge-warning">Prestado Parcial</span>';
 
-        return `
+        // Obtener códigos de ejemplares generados
+        const ejemRes = await tursodb.query(`SELECT codigo_ejemplar, estado FROM biblioteca_ejemplares WHERE libro_id = ? ORDER BY ejemplar_num ASC`, [b.id]);
+        const ejems = ejemRes.rows || [];
+        const codigosList = ejems.map(e => {
+            const color = e.estado === 'disponible' ? '#155724' : '#721c24';
+            const bg = e.estado === 'disponible' ? '#d4edda' : '#f8d7da';
+            return `<span style="font-family:monospace; background:${bg}; color:${color}; padding:2px 6px; border-radius:4px; margin-right:4px; font-weight:bold; font-size:12px;" title="Estado: ${e.estado}">${e.codigo_ejemplar}</span>`;
+        }).join('');
+
+        rowsHtml += `
             <tr>
-                <td><strong>${b.codigo_libro}</strong></td>
-                <td>${b.titulo}</td>
+                <td><strong>${b.area_cod || '-'}</strong></td>
+                <td><strong>${b.libro_num || '-'}</strong></td>
+                <td>${codigosList || 'Sin códigos'}</td>
+                <td><strong>${b.titulo}</strong></td>
                 <td>${b.autor || '-'}</td>
                 <td>${b.editorial || '-'}</td>
                 <td>${b.anio || '-'}</td>
                 <td><strong>${disp} / ${total}</strong></td>
                 <td><span class="badge badge-secondary">${b.estado_fisico || 'Bueno'}</span></td>
-                <td>${badgeDisp}</td>
                 <td>
                     <button onclick="editarLibro('${b.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
                     ${disp === 0 ? `<button onclick="solicitarReservaLibro('${b.id}', '${escapeHtml(b.titulo)}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔖 Reservar</button>` : ''}
@@ -1220,13 +1275,16 @@ function renderTablaCatalogo(lista) {
                 </td>
             </tr>
         `;
-    }).join('');
+    }
+
+    tbody.innerHTML = rowsHtml;
 }
 
 function filtrarCatalogo() {
     const q = document.getElementById('cat-search-input').value.toLowerCase().trim();
     const filtrados = catalogoLibrosCache.filter(b => 
-        (b.codigo_libro && b.codigo_libro.toLowerCase().includes(q)) ||
+        (b.area_cod && b.area_cod.toLowerCase().includes(q)) ||
+        (b.libro_num && b.libro_num.toLowerCase().includes(q)) ||
         (b.titulo && b.titulo.toLowerCase().includes(q)) ||
         (b.autor && b.autor.toLowerCase().includes(q))
     );
@@ -1238,12 +1296,14 @@ function abrirModalLibro() {
     document.getElementById('form-libro-title').textContent = 'Registrar Nuevo Libro';
     document.getElementById('book-edit-id').value = '';
     document.getElementById('book-input-cod').value = '';
+    document.getElementById('book-input-num').value = '';
     document.getElementById('book-input-titulo').value = '';
     document.getElementById('book-input-autor').value = '';
     document.getElementById('book-input-editorial').value = '';
     document.getElementById('book-input-anio').value = '';
     document.getElementById('book-input-ejemplares').value = '1';
     document.getElementById('book-input-estado-fisico').value = 'Bueno';
+    actualizarPrevisualizacionCodigos();
 }
 
 function cerrarFormLibro() {
@@ -1255,20 +1315,23 @@ function editarLibro(id) {
     if (!b) return;
 
     abrirModalLibro();
-    document.getElementById('form-libro-title').textContent = `Editar Libro [${b.codigo_libro}]`;
+    document.getElementById('form-libro-title').textContent = `Editar Libro [${b.area_cod}-${b.libro_num}]`;
     document.getElementById('book-edit-id').value = b.id;
-    document.getElementById('book-input-cod').value = b.codigo_libro;
+    document.getElementById('book-input-cod').value = b.area_cod || '';
+    document.getElementById('book-input-num').value = b.libro_num || '';
     document.getElementById('book-input-titulo').value = b.titulo;
     document.getElementById('book-input-autor').value = b.autor || '';
     document.getElementById('book-input-editorial').value = b.editorial || '';
     document.getElementById('book-input-anio').value = b.anio || '';
     document.getElementById('book-input-ejemplares').value = b.cantidad_total || 1;
     document.getElementById('book-input-estado-fisico').value = b.estado_fisico || 'Bueno';
+    actualizarPrevisualizacionCodigos();
 }
 
 async function guardarLibro() {
     const editId = document.getElementById('book-edit-id').value;
-    const cod = document.getElementById('book-input-cod').value.trim();
+    const areaCod = document.getElementById('book-input-cod').value.trim();
+    const libroNum = document.getElementById('book-input-num').value.trim();
     const titulo = document.getElementById('book-input-titulo').value.trim();
     const autor = document.getElementById('book-input-autor').value.trim();
     const editorial = document.getElementById('book-input-editorial').value.trim();
@@ -1276,35 +1339,58 @@ async function guardarLibro() {
     const cantTotal = parseInt(document.getElementById('book-input-ejemplares').value) || 1;
     const estadoFisico = document.getElementById('book-input-estado-fisico').value;
 
-    if (!cod || !titulo) {
-        alert('⚠️ COD y TÍTULO son campos obligatorios');
+    if (!areaCod || !libroNum || !titulo) {
+        alert('⚠️ COD (Área), Nº (Libro) y TÍTULO son campos obligatorios');
         return;
     }
 
+    let libroId = editId;
+
     if (editId) {
         await tursodb.query(
-            `UPDATE biblioteca_libros SET codigo_libro = ?, titulo = ?, autor = ?, editorial = ?, anio = ?, cantidad_total = ?, cantidad_disponible = ?, estado_fisico = ? WHERE id = ?`,
-            [cod, titulo, autor, editorial, anio, cantTotal, cantTotal, estadoFisico, editId]
+            `UPDATE biblioteca_libros SET area_cod = ?, libro_num = ?, titulo = ?, autor = ?, editorial = ?, anio = ?, cantidad_total = ?, cantidad_disponible = ?, estado_fisico = ? WHERE id = ?`,
+            [areaCod, libroNum, titulo, autor, editorial, anio, cantTotal, cantTotal, estadoFisico, editId]
         );
-        alert('✅ Libro actualizado correctamente');
     } else {
-        const newId = Date.now().toString();
+        libroId = Date.now().toString();
         await tursodb.query(
-            `INSERT INTO biblioteca_libros (id, codigo_libro, titulo, autor, editorial, anio, cantidad_total, cantidad_disponible, estado_fisico, estado_disponibilidad)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'disponible')`,
-            [newId, cod, titulo, autor, editorial, anio, cantTotal, cantTotal, estadoFisico]
+            `INSERT INTO biblioteca_libros (id, area_cod, libro_num, titulo, autor, editorial, anio, cantidad_total, cantidad_disponible, estado_fisico)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [libroId, areaCod, libroNum, titulo, autor, editorial, anio, cantTotal, cantTotal, estadoFisico]
         );
-        alert('✅ Libro registrado correctamente');
     }
 
+    // Generar/Actualizar ejemplares individuales (ej: 0111, 0112, 0113)
+    const ejemExist = await tursodb.query(`SELECT * FROM biblioteca_ejemplares WHERE libro_id = ?`, [libroId]);
+    const existentes = ejemExist.rows || [];
+
+    for (let i = 1; i <= cantTotal; i++) {
+        const codigoEjem = `${areaCod}${libroNum}${i}`;
+        const ex = existentes.find(e => e.ejemplar_num === i || e.codigo_ejemplar === codigoEjem);
+        if (!ex) {
+            await tursodb.query(
+                `INSERT INTO biblioteca_ejemplares (id, libro_id, codigo_ejemplar, ejemplar_num, estado, estado_fisico)
+                 VALUES (?, ?, ?, ?, 'disponible', ?)`,
+                [`${libroId}-${i}`, libroId, codigoEjem, i, estadoFisico]
+            );
+        } else {
+            await tursodb.query(
+                `UPDATE biblioteca_ejemplares SET codigo_ejemplar = ?, estado_fisico = ? WHERE id = ?`,
+                [codigoEjem, estadoFisico, ex.id]
+            );
+        }
+    }
+
+    alert(`✅ LIBRO REGISTRADO CON ÉXITO\nSe generaron ${cantTotal} código(s) de ejemplares: ${areaCod}${libroNum}1 al ${areaCod}${libroNum}${cantTotal}`);
     cerrarFormLibro();
     await cargarCatalogoLibros();
 }
 
 async function eliminarLibro(id) {
-    if (!confirm('¿Estás seguro de eliminar este libro del catálogo?')) return;
+    if (!confirm('¿Estás seguro de eliminar este libro y todos sus ejemplares del catálogo?')) return;
+    await tursodb.query(`DELETE FROM biblioteca_ejemplares WHERE libro_id = ?`, [id]);
     await tursodb.query(`DELETE FROM biblioteca_libros WHERE id = ?`, [id]);
-    alert('🗑️ Libro eliminado del catálogo');
+    alert('🗑️ Libro y ejemplares eliminados del catálogo');
     await cargarCatalogoLibros();
 }
 

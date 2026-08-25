@@ -104,14 +104,18 @@ async function crearTablasBiblioteca() {
         CREATE TABLE IF NOT EXISTS biblioteca_reservas (
             id TEXT PRIMARY KEY,
             libro_id TEXT NOT NULL,
+            ejemplar_id TEXT,
             persona_ci TEXT NOT NULL,
             persona_nombre TEXT NOT NULL,
             persona_tipo TEXT NOT NULL,
             estado TEXT DEFAULT 'pendiente',
             fecha_reserva TEXT DEFAULT CURRENT_TIMESTAMP,
+            fecha_expiracion TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `);
+    try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN ejemplar_id TEXT`); } catch (e) {}
+    try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN fecha_expiracion TEXT`); } catch (e) {}
 }
 
 function toggleDropdown() {
@@ -1535,15 +1539,45 @@ async function eliminarLibro(id) {
     await cargarCatalogoLibros();
 }
 
+async function verificarYLimpiarReservasExpiradas() {
+    try {
+        const ahora = new Date().toISOString();
+        const res = await tursodb.query(
+            `SELECT * FROM biblioteca_reservas WHERE estado = 'pendiente' AND fecha_expiracion IS NOT NULL AND fecha_expiracion < ?`,
+            [ahora]
+        );
+        if (!res.rows || res.rows.length === 0) return;
+
+        for (const r of res.rows) {
+            await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'expirada' WHERE id = ?`, [r.id]);
+            if (r.ejemplar_id) {
+                await tursodb.query(
+                    `UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
+                    [r.ejemplar_id]
+                );
+            }
+        }
+    } catch (e) {
+        console.error('Error al limpiar reservas expiradas:', e);
+    }
+}
+
 // ---------- 4. COLA DE RESERVAS ----------
 
 async function cargarReservas() {
+    await verificarYLimpiarReservasExpiradas();
     const tbody = document.getElementById('reservas-table-body');
     if (!tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#666;">Cargando reservas...</td></tr>';
 
-    const res = await tursodb.query(`SELECT * FROM biblioteca_reservas ORDER BY created_at DESC`);
+    const res = await tursodb.query(
+        `SELECT r.*, l.titulo as libro_titulo, l.area_cod, l.libro_num 
+         FROM biblioteca_reservas r 
+         LEFT JOIN biblioteca_libros l ON r.libro_id = l.id 
+         ORDER BY r.created_at DESC`
+    );
+
     if (!res.rows || res.rows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">No hay reservas registradas.</td></tr>';
         return;
@@ -1552,24 +1586,105 @@ async function cargarReservas() {
     reservasCache = res.rows;
 
     tbody.innerHTML = reservasCache.map(r => {
-        const stBadge = r.estado === 'pendiente' 
-            ? '<span class="badge badge-warning">Pendiente</span>'
-            : '<span class="badge badge-secondary">Atendida / Cancelada</span>';
+        let stBadge = '';
+        if (r.estado === 'pendiente') {
+            const es12h = !!r.fecha_expiracion;
+            stBadge = `<span class="badge badge-warning">Pendiente ${es12h ? '(12h)' : ''}</span>`;
+        } else if (r.estado === 'completada') {
+            stBadge = '<span class="badge badge-success">Aprobada / Préstamo</span>';
+        } else if (r.estado === 'expirada') {
+            stBadge = '<span class="badge badge-danger">Expirada (12h)</span>';
+        } else {
+            stBadge = '<span class="badge badge-secondary">Cancelada</span>';
+        }
+
+        const codigoLibro = (r.area_cod && r.libro_num) ? `[${pad2(r.area_cod)}${pad2(r.libro_num)}] ` : '';
+        const tituloLibro = `${codigoLibro}${r.libro_titulo || r.libro_id}`;
 
         return `
             <tr>
-                <td><strong>${r.libro_id}</strong></td>
-                <td>${r.persona_nombre}<br><small style="color:#666;">CI: ${r.persona_ci}</small></td>
-                <td>${formatearFecha(r.fecha_reserva)}</td>
+                <td><strong>${tituloLibro}</strong></td>
+                <td>${r.persona_nombre}<br><small style="color:#666;">CI: ${r.persona_ci} (${r.persona_tipo})</small></td>
+                <td>${formatearFecha(r.fecha_reserva ? r.fecha_reserva.split('T')[0] : '')}</td>
                 <td>${stBadge}</td>
                 <td>
                     ${r.estado === 'pendiente' ? `
-                        <button onclick="cancelarReserva('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">Cancelar</button>
+                        <button onclick="aprobarReservaYConvertirEnPrestamo('${r.id}')" class="btn-success" style="padding:4px 8px; font-size:12px; margin-right:4px;">✅ Aprobar y Prestar</button>
+                        <button onclick="cancelarReserva('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">❌ Cancelar</button>
                     ` : '-'}
                 </td>
             </tr>
         `;
     }).join('');
+}
+
+async function aprobarReservaYConvertirEnPrestamo(reservaId) {
+    const res = await tursodb.query(`SELECT * FROM biblioteca_reservas WHERE id = ?`, [reservaId]);
+    if (!res.rows || res.rows.length === 0) return;
+    const r = res.rows[0];
+
+    const libRes = await tursodb.query(`SELECT * FROM biblioteca_libros WHERE id = ?`, [r.libro_id]);
+    if (!libRes.rows || libRes.rows.length === 0) {
+        alert('❌ No se encontró el libro asociado a esta reserva.');
+        return;
+    }
+    const libro = libRes.rows[0];
+
+    let ejemId = r.ejemplar_id;
+    let ejemCodigo = '';
+
+    if (ejemId) {
+        const eRes = await tursodb.query(`SELECT * FROM biblioteca_ejemplares WHERE id = ?`, [ejemId]);
+        if (eRes.rows && eRes.rows.length > 0) {
+            ejemCodigo = eRes.rows[0].codigo_ejemplar;
+        }
+    }
+
+    if (!ejemId || !ejemCodigo) {
+        const eRes = await tursodb.query(
+            `SELECT * FROM biblioteca_ejemplares WHERE libro_id = ? AND estado IN ('disponible', 'reservado') LIMIT 1`,
+            [r.libro_id]
+        );
+        if (eRes.rows && eRes.rows.length > 0) {
+            ejemId = eRes.rows[0].id;
+            ejemCodigo = eRes.rows[0].codigo_ejemplar;
+        } else {
+            alert('❌ No hay ejemplares disponibles para aprobar el préstamo de esta reserva.');
+            return;
+        }
+    }
+
+    if (!confirm(`¿Aprobar reserva y crear préstamo activo para ${r.persona_nombre} (CI: ${r.persona_ci}) del libro "${libro.titulo}"?`)) return;
+
+    const fechaHoy = new Date().toISOString().split('T')[0];
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 3);
+    const prestamoId = Date.now().toString();
+
+    // 1. Crear Préstamo
+    await tursodb.query(
+        `INSERT INTO biblioteca_prestamos (id, persona_ci, persona_nombre, persona_tipo, fecha_prestamo, fecha_devolucion_prevista, estado)
+         VALUES (?, ?, ?, ?, ?, ?, 'activo')`,
+        [prestamoId, r.persona_ci, r.persona_nombre, r.persona_tipo, fechaHoy, fechaDevolucionPrevista]
+    );
+
+    // 2. Crear Detalle de Préstamo
+    const detalleId = `${prestamoId}-${ejemId}`;
+    await tursodb.query(
+        `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, ejemplar_id, libro_codigo, libro_titulo, estado_item)
+         VALUES (?, ?, ?, ?, ?, ?, 'prestado')`,
+        [detalleId, prestamoId, r.libro_id, ejemId, ejemCodigo, libro.titulo]
+    );
+
+    // 3. Marcar ejemplar como prestado y reserva como completada
+    await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'prestado' WHERE id = ?`, [ejemId]);
+    await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'completada' WHERE id = ?`, [reservaId]);
+
+    // 4. Actualizar disponibilidad del libro
+    const disp = libro.cantidad_disponible !== null ? libro.cantidad_disponible : libro.cantidad_total;
+    await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, disp - 1), r.libro_id]);
+
+    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nFecha devolución prevista: ${formatearFecha(fechaDevolucionPrevista)}`);
+    await cargarReservas();
 }
 
 async function solicitarReservaLibro(libroId, titulo) {

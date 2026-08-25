@@ -259,9 +259,33 @@ async function cargarMisPrestamos() {
     tbody.innerHTML = rowsHtml;
 }
 
+async function verificarYLimpiarReservasExpiradas() {
+    try {
+        const ahora = new Date().toISOString();
+        const res = await tursodb.query(
+            `SELECT * FROM biblioteca_reservas WHERE estado = 'pendiente' AND fecha_expiracion IS NOT NULL AND fecha_expiracion < ?`,
+            [ahora]
+        );
+        if (!res.rows || res.rows.length === 0) return;
+
+        for (const r of res.rows) {
+            await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'expirada' WHERE id = ?`, [r.id]);
+            if (r.ejemplar_id) {
+                await tursodb.query(
+                    `UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
+                    [r.ejemplar_id]
+                );
+            }
+        }
+    } catch (e) {
+        console.error('Error al limpiar reservas expiradas:', e);
+    }
+}
+
 // ---------- 4. BUSCADOR Y CARRITO DE SOLICITUD DE PRÉSTAMO ----------
 
 async function buscarLibrosPortal() {
+    await verificarYLimpiarReservasExpiradas();
     const rawQ = (document.getElementById('user-search-book-input')?.value || '').trim();
     const resultsEl = document.getElementById('user-search-book-results');
     if (!resultsEl) return;
@@ -289,15 +313,42 @@ async function buscarLibrosPortal() {
     const rows = ejemRes.rows || [];
 
     if (rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic; text-align:center; padding:15px;">No se encontraron libros disponibles con esa búsqueda.</p>';
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic; text-align:center; padding:15px;">No se encontraron libros con esa búsqueda.</p>';
         return;
     }
 
     resultsEl.innerHTML = rows.map(item => {
         const enCarrito = userCartItems.some(c => c.ejemId === item.ejem_id);
         const estaDisponible = item.ejem_estado === 'disponible';
-        const disabled = !estaDisponible || enCarrito;
-        const btnText = enCarrito ? 'En Carrito' : (!estaDisponible ? `[${item.ejem_estado.toUpperCase()}]` : '+ Seleccionar');
+        const estaPrestado = item.ejem_estado === 'prestado';
+        const estaReservado = item.ejem_estado === 'reservado';
+
+        let accionesHtml = '';
+
+        if (enCarrito) {
+            accionesHtml = `<span class="badge badge-info">En Carrito</span>`;
+        } else if (estaDisponible) {
+            accionesHtml = `
+                <button onclick="agregarAlCarritoUsuario('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})')" 
+                        class="btn-success" style="padding:5px 10px; font-size:12px; margin-right:4px;">
+                    + Seleccionar
+                </button>
+                <button onclick="solicitarReservaConExpiracion('${item.libro_id}', '${item.ejem_id}', '${escapeHtml(item.titulo)}', '${escapeHtml(item.codigo_ejemplar)}', true)" 
+                        class="btn-info" style="padding:5px 10px; font-size:12px;">
+                    🔖 Reservar (12h)
+                </button>
+            `;
+        } else if (estaPrestado) {
+            accionesHtml = `
+                <span class="badge badge-danger" style="margin-right:6px;">PRESTADO</span>
+                <button onclick="solicitarReservaConExpiracion('${item.libro_id}', '${item.ejem_id}', '${escapeHtml(item.titulo)}', '${escapeHtml(item.codigo_ejemplar)}', false)" 
+                        class="btn-info" style="padding:5px 10px; font-size:12px;">
+                    🔖 Reservar
+                </button>
+            `;
+        } else if (estaReservado) {
+            accionesHtml = `<span class="badge badge-secondary">RESERVADO</span>`;
+        }
 
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #eee; background:#fff;">
@@ -305,14 +356,50 @@ async function buscarLibrosPortal() {
                     <strong style="color:#0d6efd;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong><br>
                     <small style="color:#666;">Autor: ${item.autor || 'N/A'} | Ejemplar #${item.ejemplar_num}</small>
                 </div>
-                <button onclick="agregarAlCarritoUsuario('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})')" 
-                        class="${disabled ? 'btn-secondary' : 'btn-success'}" 
-                        style="padding:6px 12px; font-size:12px; white-space:nowrap;" ${disabled ? 'disabled' : ''}>
-                    ${btnText}
-                </button>
+                <div>
+                    ${accionesHtml}
+                </div>
             </div>
         `;
     }).join('');
+}
+
+async function solicitarReservaConExpiracion(libroId, ejemId, titulo, codigoEjemplar, esDisponible) {
+    if (!currentUser) return;
+
+    let mensajeConfirm = `¿Deseas solicitar una reserva del ejemplar [${codigoEjemplar}] de "${titulo}"?`;
+    if (esDisponible) {
+        mensajeConfirm += `\n\n📌 NOTA: Este ejemplar está actualmente disponible. Al reservarlo quedará apartado EXCLUSIVAMENTE para ti durante 12 HORAS. Si no lo recoges en ese lapso, la reserva se cancelará automáticamente.`;
+    } else {
+        mensajeConfirm += `\n\n📌 NOTA: Este ejemplar está actualmente prestado. Al reservarlo, el usuario actual no podrá renovar su préstamo y el libro te será asignado al momento de su devolución.`;
+    }
+
+    if (!confirm(mensajeConfirm)) return;
+
+    const reservaId = Date.now().toString();
+    const fechaReserva = new Date().toISOString();
+    let fechaExpiracion = null;
+
+    if (esDisponible) {
+        // Expiración en 12 horas exactas
+        fechaExpiracion = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    }
+
+    await tursodb.query(
+        `INSERT INTO biblioteca_reservas (id, libro_id, ejemplar_id, persona_ci, persona_nombre, persona_tipo, estado, fecha_reserva, fecha_expiracion)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
+        [reservaId, libroId, ejemId, currentUser.ci, currentUser.nombre, currentUser.tipo, fechaReserva, fechaExpiracion]
+    );
+
+    if (esDisponible) {
+        // Cambiar estado del ejemplar a 'reservado'
+        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [ejemId]);
+        alert(`✅ RESERVA REGISTRADA POR 12 HORAS\nHas apartado el ejemplar [${codigoEjemplar}]. Tienes 12 horas para recogerlo en la biblioteca.`);
+    } else {
+        alert(`✅ RESERVA REGISTRADA\nHas reservado el libro [${codigoEjemplar}]. El usuario actual no podrá renovar el préstamo y el libro te será reservado al ser devuelto.`);
+    }
+
+    switchPortalTab('reservas');
 }
 
 function agregarAlCarritoUsuario(ejemId, libroId, codigo, titulo) {

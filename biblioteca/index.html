@@ -3,11 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESFM - Biblioteca</title>
+    <title>ESFM - Biblioteca Administración</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
     <link rel="stylesheet" href="css/styles.css?v=2026082504">
+    <style>
+        #admin-lock-overlay {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            z-index: 99999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #admin-lock-overlay .lock-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 40px 35px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        #admin-lock-overlay .lock-icon { font-size: 52px; margin-bottom: 15px; }
+        #admin-lock-overlay h2 { color: #0f172a; margin-bottom: 8px; font-size: 1.4rem; }
+        #admin-lock-overlay p { color: #64748b; font-size: 14px; margin-bottom: 25px; }
+        #admin-pin-input {
+            width: 100%;
+            padding: 14px;
+            font-size: 20px;
+            text-align: center;
+            letter-spacing: 6px;
+            border: 2px solid #cbd5e1;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+        #admin-pin-input:focus { outline: none; border-color: #0d6efd; }
+        #admin-pin-error { color: #dc3545; font-size: 13px; min-height: 18px; margin-bottom: 10px; }
+        #btn-admin-unlock {
+            width: 100%;
+            padding: 14px;
+            background: #0d6efd;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #btn-admin-unlock:hover { background: #0a58ca; }
+        #btn-ir-portal {
+            width: 100%;
+            margin-top: 12px;
+            padding: 10px;
+            background: transparent;
+            color: #64748b;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        #btn-ir-portal:hover { background: #f8f9fa; }
+    </style>
 </head>
 <body>
+<!-- CAPA DE BLOQUEO ADMIN (se oculta solo con PIN correcto) -->
+<div id="admin-lock-overlay">
+    <div class="lock-card">
+        <div class="lock-icon">🔐</div>
+        <h2>Panel de Administración</h2>
+        <p>Esta sección es exclusiva del personal autorizado de la biblioteca.<br>Ingresa el PIN de administrador para continuar.</p>
+        <input type="password" id="admin-pin-input" maxlength="10" placeholder="PIN Admin" onkeydown="if(event.key==='Enter') verificarPinAdmin()">
+        <div id="admin-pin-error"></div>
+        <button id="btn-admin-unlock" onclick="verificarPinAdmin()">🔓 Ingresar al Panel</button>
+        <button id="btn-ir-portal" onclick="window.location.href='usuario.html'">👤 Ir al Portal de Usuarios</button>
+    </div>
+</div>
+
+<script>
+// ========== VERIFICACIÓN DE PIN ADMIN ==========
+// PIN hasheado con SHA-256 para no exponer el PIN en texto plano
+// Valor actual: hash de '2026esfm' (clic en "Calcular" para cambiar)
+const ADMIN_PIN_HASH = '6cd279df0bff1609917794c68287287ecbe0f610e771ad8f4253af3cdbd82bd8';
+
+async function hashPin(pin) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verificarPinAdmin() {
+    const pinInput = document.getElementById('admin-pin-input');
+    const errorEl = document.getElementById('admin-pin-error');
+    const pin = pinInput.value.trim();
+
+    if (!pin) {
+        errorEl.textContent = '⚠️ Ingresa el PIN de administrador.';
+        return;
+    }
+
+    const hash = await hashPin(pin);
+
+    if (hash === ADMIN_PIN_HASH) {
+        // PIN correcto: guardar sesión admin en sessionStorage (solo esta pestaña)
+        sessionStorage.setItem('esfm_admin_unlocked', '1');
+        document.getElementById('admin-lock-overlay').style.display = 'none';
+        errorEl.textContent = '';
+    } else {
+        errorEl.textContent = '❌ PIN incorrecto. Inténtalo nuevamente.';
+        pinInput.value = '';
+        pinInput.focus();
+    }
+}
+
+// Si ya está desbloqueado en esta pestaña, saltar la pantalla de PIN
+if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('admin-lock-overlay').style.display = 'none';
+    });
+}
+</script>
+
 <div id="app">
 
     <!-- DASHBOARD BIBLIOTECA -->

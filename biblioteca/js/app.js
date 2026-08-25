@@ -1268,21 +1268,33 @@ async function renderTablaCatalogo(lista) {
         return;
     }
 
-    let rowsHtml = '';
-    for (const b of lista) {
+    // Traer todos los ejemplares en 1 sola consulta para rendimiento instantáneo
+    const ejemRes = await tursodb.query(`SELECT libro_id, codigo_ejemplar, estado, ejemplar_num FROM biblioteca_ejemplares ORDER BY ejemplar_num ASC`);
+    const todosEjemplares = ejemRes.rows || [];
+    
+    // Agrupar por libro_id
+    const mapEjemplares = {};
+    todosEjemplares.forEach(e => {
+        if (!mapEjemplares[e.libro_id]) mapEjemplares[e.libro_id] = [];
+        mapEjemplares[e.libro_id].push(e);
+    });
+
+    // Mostrar un límite de 200 filas para fluidez del DOM
+    const limit = 200;
+    const listaRender = lista.slice(0, limit);
+
+    let rowsHtml = listaRender.map(b => {
         const total = b.cantidad_total || 1;
         const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
 
-        // Obtener códigos de ejemplares generados
-        const ejemRes = await tursodb.query(`SELECT codigo_ejemplar, estado FROM biblioteca_ejemplares WHERE libro_id = ? ORDER BY ejemplar_num ASC`, [b.id]);
-        const ejems = ejemRes.rows || [];
+        const ejems = mapEjemplares[b.id] || [];
         const codigosList = ejems.map(e => {
             const color = e.estado === 'disponible' ? '#155724' : '#721c24';
             const bg = e.estado === 'disponible' ? '#d4edda' : '#f8d7da';
             return `<span style="font-family:monospace; background:${bg}; color:${color}; padding:2px 6px; border-radius:4px; margin-right:4px; font-weight:bold; font-size:12px;" title="Estado: ${e.estado}">${e.codigo_ejemplar}</span>`;
         }).join('');
 
-        rowsHtml += `
+        return `
             <tr>
                 <td><strong>${b.area_cod || '-'}</strong></td>
                 <td><strong>${b.libro_num || '-'}</strong></td>
@@ -1300,6 +1312,10 @@ async function renderTablaCatalogo(lista) {
                 </td>
             </tr>
         `;
+    }).join('');
+
+    if (lista.length > limit) {
+        rowsHtml += `<tr><td colspan="10" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} libros de ${lista.length} registrados (Usa el buscador arriba para filtrar en tiempo real).</td></tr>`;
     }
 
     tbody.innerHTML = rowsHtml;

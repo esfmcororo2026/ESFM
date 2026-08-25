@@ -882,22 +882,34 @@ async function buscarUsuarioCarrito() {
     `;
 }
 
+// Helper: Formatear a 2 dígitos numéricos fija (01, 02, 12, etc.)
+function pad2(val) {
+    if (!val && val !== 0) return '01';
+    const str = String(val).trim();
+    if (!isNaN(str) && str.length < 2) {
+        return str.padStart(2, '0');
+    }
+    return str;
+}
+
 // Helper: Previsualizar códigos de ejemplares en el formulario
 function actualizarPrevisualizacionCodigos() {
-    const areaCod = document.getElementById('book-input-cod')?.value.trim() || '';
-    const libroNum = document.getElementById('book-input-num')?.value.trim() || '';
+    const rawArea = document.getElementById('book-input-cod')?.value.trim() || '';
+    const rawNum = document.getElementById('book-input-num')?.value.trim() || '';
+    const areaCod = pad2(rawArea);
+    const libroNum = pad2(rawNum);
     const cant = parseInt(document.getElementById('book-input-ejemplares')?.value) || 1;
     const prevEl = document.getElementById('book-code-preview');
     if (!prevEl) return;
 
-    if (!areaCod || !libroNum) {
+    if (!rawArea || !rawNum) {
         prevEl.textContent = 'Ingresa COD (Área), Nº y Nº EJEM. para previsualizar';
         return;
     }
 
     const codigos = [];
     for (let i = 1; i <= cant; i++) {
-        codigos.push(`${areaCod}${libroNum}${i}`);
+        codigos.push(`${areaCod}${libroNum}${pad2(i)}`);
     }
 
     if (codigos.length <= 5) {
@@ -916,19 +928,54 @@ async function buscarLibroParaCarrito() {
 
     const cleanQ = rawQ.replace(/['"]/g, '');
 
-    // 1. Intento de búsqueda directa
+    // Construir variantes normalizadas del código si parece un código numérico
+    // El formato es: AA BB CC (área 2 dig + libro 2 dig + ejemplar 2 dig = 6 dígitos)
+    const searchVariants = [cleanQ];
+    if (/^\d+$/.test(cleanQ)) {
+        // Si tiene 6 dígitos exactos, buscar directo
+        if (cleanQ.length === 6) {
+            searchVariants.push(cleanQ);
+        }
+        // Si tiene menos de 6 dígitos, intentar normalizar como prefijo de código
+        if (cleanQ.length <= 4) {
+            // Dividir en grupos de 2 dígitos y reconstruir con pad2
+            const parts = [];
+            for (let i = 0; i < cleanQ.length; i += 2) {
+                parts.push(pad2(cleanQ.slice(i, i + 2)));
+            }
+            const normalized = parts.join('');
+            if (!searchVariants.includes(normalized)) searchVariants.push(normalized);
+        }
+        // También buscar como si fueran los primeros N dígitos del código de 6
+        const padded = cleanQ.padStart(2, '0');
+        if (!searchVariants.includes(padded)) searchVariants.push(padded);
+    }
+
+    // Construir condición LIKE para todas las variantes
+    const likeConditions = searchVariants.map(() =>
+        `e.codigo_ejemplar LIKE ?`
+    ).join(' OR ');
+
+    const likeParams = searchVariants.map(v => `${v}%`);
+
+    // 1. Búsqueda por código y texto (título, autor)
     let ejemRes = await tursodb.query(
-        `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado, l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
+        `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado,
+                l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
          FROM biblioteca_ejemplares e 
          JOIN biblioteca_libros l ON e.libro_id = l.id 
-         WHERE e.codigo_ejemplar LIKE ? OR l.titulo LIKE ? OR l.area_cod LIKE ? OR l.libro_num LIKE ? OR l.autor LIKE ? OR l.editorial LIKE ?
-         LIMIT 20`,
-        [`%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
+         WHERE ${likeConditions}
+            OR e.codigo_ejemplar LIKE ?
+            OR l.titulo LIKE ?
+            OR l.autor LIKE ?
+            OR l.editorial LIKE ?
+         LIMIT 30`,
+        [...likeParams, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
     );
 
     let rows = ejemRes.rows || [];
 
-    // 2. Si no se encuentran resultados y la búsqueda tiene varias palabras, buscar por palabras clave (tokens)
+    // 2. Si no hay resultados y hay varias palabras, buscar por palabras clave
     if (rows.length === 0 && cleanQ.includes(' ')) {
         const words = cleanQ.split(/\s+/).filter(w => w.length >= 3).slice(0, 4);
         if (words.length > 0) {
@@ -939,11 +986,12 @@ async function buscarLibroParaCarrito() {
             });
 
             ejemRes = await tursodb.query(
-                `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado, l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
+                `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado,
+                        l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
                  FROM biblioteca_ejemplares e 
                  JOIN biblioteca_libros l ON e.libro_id = l.id 
                  WHERE ${conditions}
-                 LIMIT 20`,
+                 LIMIT 30`,
                 params
             );
             rows = ejemRes.rows || [];
@@ -951,7 +999,7 @@ async function buscarLibroParaCarrito() {
     }
 
     if (rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron ejemplares con esa búsqueda. Intenta buscando por código (ej: 0111) o palabras clave del título.</p>';
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron ejemplares. Intenta por código (ej: <b>010101</b>) o palabras del título.</p>';
         return;
     }
 
@@ -1371,8 +1419,10 @@ function editarLibro(id) {
 
 async function guardarLibro() {
     const editId = document.getElementById('book-edit-id').value;
-    const areaCod = document.getElementById('book-input-cod').value.trim();
-    const libroNum = document.getElementById('book-input-num').value.trim();
+    const rawArea = document.getElementById('book-input-cod').value.trim();
+    const rawNum = document.getElementById('book-input-num').value.trim();
+    const areaCod = pad2(rawArea);
+    const libroNum = pad2(rawNum);
     const titulo = document.getElementById('book-input-titulo').value.trim();
     const autor = document.getElementById('book-input-autor').value.trim();
     const editorial = document.getElementById('book-input-editorial').value.trim();
@@ -1380,7 +1430,7 @@ async function guardarLibro() {
     const cantTotal = parseInt(document.getElementById('book-input-ejemplares').value) || 1;
     const estadoFisico = document.getElementById('book-input-estado-fisico').value;
 
-    if (!areaCod || !libroNum || !titulo) {
+    if (!rawArea || !rawNum || !titulo) {
         alert('⚠️ COD (Área), Nº (Libro) y TÍTULO son campos obligatorios');
         return;
     }
@@ -1401,12 +1451,12 @@ async function guardarLibro() {
         );
     }
 
-    // Generar/Actualizar ejemplares individuales (ej: 0111, 0112, 0113)
+    // Generar/Actualizar ejemplares individuales (ej: 010101, 011201, 010102)
     const ejemExist = await tursodb.query(`SELECT * FROM biblioteca_ejemplares WHERE libro_id = ?`, [libroId]);
     const existentes = ejemExist.rows || [];
 
     for (let i = 1; i <= cantTotal; i++) {
-        const codigoEjem = `${areaCod}${libroNum}${i}`;
+        const codigoEjem = `${areaCod}${libroNum}${pad2(i)}`;
         const ex = existentes.find(e => e.ejemplar_num === i || e.codigo_ejemplar === codigoEjem);
         if (!ex) {
             await tursodb.query(
@@ -1422,7 +1472,7 @@ async function guardarLibro() {
         }
     }
 
-    alert(`✅ LIBRO REGISTRADO CON ÉXITO\nSe generaron ${cantTotal} código(s) de ejemplares: ${areaCod}${libroNum}1 al ${areaCod}${libroNum}${cantTotal}`);
+    alert(`✅ LIBRO REGISTRADO CON ÉXITO\nSe generaron ${cantTotal} código(s) de ejemplares: ${areaCod}${libroNum}${pad2(1)} al ${areaCod}${libroNum}${pad2(cantTotal)}`);
     cerrarFormLibro();
     await cargarCatalogoLibros();
 }

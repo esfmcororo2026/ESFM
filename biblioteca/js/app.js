@@ -908,25 +908,50 @@ function actualizarPrevisualizacionCodigos() {
 }
 
 async function buscarLibroParaCarrito() {
-    const q = document.getElementById('cart-book-input').value.trim();
+    const rawQ = document.getElementById('cart-book-input').value.trim();
     const resultsEl = document.getElementById('cart-book-results');
-    if (!q) { resultsEl.innerHTML = ''; return; }
+    if (!rawQ) { resultsEl.innerHTML = ''; return; }
 
     resultsEl.innerHTML = '<p style="color:#666; font-size:13px;">Buscando ejemplares...</p>';
 
-    // Buscar ejemplares por código único de ejemplar, área, número o título del libro
-    const ejemRes = await tursodb.query(
-        `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado, l.id as libro_id, l.titulo, l.autor, l.area_cod, l.libro_num 
+    const cleanQ = rawQ.replace(/['"]/g, '');
+
+    // 1. Intento de búsqueda directa
+    let ejemRes = await tursodb.query(
+        `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado, l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
          FROM biblioteca_ejemplares e 
          JOIN biblioteca_libros l ON e.libro_id = l.id 
-         WHERE e.codigo_ejemplar LIKE ? OR l.titulo LIKE ? OR l.area_cod LIKE ? OR l.autor LIKE ?
-         LIMIT 15`,
-        [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+         WHERE e.codigo_ejemplar LIKE ? OR l.titulo LIKE ? OR l.area_cod LIKE ? OR l.libro_num LIKE ? OR l.autor LIKE ? OR l.editorial LIKE ?
+         LIMIT 20`,
+        [`%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
     );
 
-    const rows = ejemRes.rows || [];
+    let rows = ejemRes.rows || [];
+
+    // 2. Si no se encuentran resultados y la búsqueda tiene varias palabras, buscar por palabras clave (tokens)
+    if (rows.length === 0 && cleanQ.includes(' ')) {
+        const words = cleanQ.split(/\s+/).filter(w => w.length >= 3).slice(0, 4);
+        if (words.length > 0) {
+            const conditions = words.map(() => `(l.titulo LIKE ? OR l.autor LIKE ? OR e.codigo_ejemplar LIKE ?)`).join(' AND ');
+            const params = [];
+            words.forEach(w => {
+                params.push(`%${w}%`, `%${w}%`, `%${w}%`);
+            });
+
+            ejemRes = await tursodb.query(
+                `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado, l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
+                 FROM biblioteca_ejemplares e 
+                 JOIN biblioteca_libros l ON e.libro_id = l.id 
+                 WHERE ${conditions}
+                 LIMIT 20`,
+                params
+            );
+            rows = ejemRes.rows || [];
+        }
+    }
+
     if (rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron ejemplares con esa búsqueda.</p>';
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron ejemplares con esa búsqueda. Intenta buscando por código (ej: 0111) o palabras clave del título.</p>';
         return;
     }
 
@@ -940,7 +965,7 @@ async function buscarLibroParaCarrito() {
             <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #eee; background:#fff;">
                 <div style="font-size:13px;">
                     <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> ${item.titulo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
-                    <small style="color:#666;">Área: ${item.area_cod} | Libro Nº: ${item.libro_num} | Autor: ${item.autor || 'N/A'}</small>
+                    <small style="color:#666;">Área: ${item.area_cod || '-'} | Libro Nº: ${item.libro_num || '-'} | Autor: ${item.autor || 'N/A'}</small>
                 </div>
                 <button onclick="agregarAlCarrito('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})')" 
                         class="${disabled ? 'btn-secondary' : 'btn-success'}" 

@@ -179,9 +179,8 @@
         <!-- Pestañas del Portal de Usuario -->
         <div class="portal-nav-tabs">
             <button class="portal-tab-btn active" id="tab-btn-prestamos" onclick="switchPortalTab('prestamos')">📋 Mis Préstamos</button>
-            <button class="portal-tab-btn" id="tab-btn-solicitar" onclick="switchPortalTab('solicitar')">🛒 Solicitar Préstamo</button>
-            <button class="portal-tab-btn" id="tab-btn-reservas" onclick="switchPortalTab('reservas')">🔖 Mis Reservas</button>
-            <button class="portal-tab-btn" id="tab-btn-catalogo" onclick="switchPortalTab('catalogo')">📚 Catálogo</button>
+            <button class="portal-tab-btn" id="tab-btn-reservas" onclick="switchPortalTab('reservas')">🔖 Solicitar / Ver Mis Reservas</button>
+            <button class="portal-tab-btn" id="tab-btn-catalogo" onclick="switchPortalTab('catalogo')">📚 Catálogo de Libros</button>
         </div>
 
         <!-- PESTAÑA 1: MIS PRÉSTAMOS -->
@@ -204,49 +203,20 @@
             </div>
         </div>
 
-        <!-- PESTAÑA 2: SOLICITAR PRÉSTAMO -->
-        <div id="portal-tab-solicitar" class="portal-tab-content" style="display:none;">
-            <h3 style="margin-bottom:15px; color:#0f172a;">🛒 Solicitar Libros en Préstamo</h3>
-            
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:20px;">
-                <!-- Buscador de Libros -->
-                <div>
-                    <div style="background:#f8f9fa; padding:15px; border-radius:8px; border:1px solid #ddd; margin-bottom:15px;">
-                        <h4 style="margin-bottom:10px; color:#0d6efd;">📖 Buscar en el Catálogo</h4>
-                        <div style="display:flex; gap:10px; margin-bottom:10px;">
-                            <input type="text" id="user-search-book-input" placeholder="Buscar por código (ej: 011201), título o autor..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:6px;" onkeydown="if(event.key==='Enter') buscarLibrosPortal()">
-                            <button onclick="buscarLibrosPortal()" class="btn-primary">Buscar</button>
-                        </div>
-                        <div id="user-search-book-results" style="max-height:300px; overflow-y:auto;"></div>
-                    </div>
-                </div>
-
-                <!-- Resumen de Solicitud (Carrito Personal) -->
-                <div style="background:#fff; padding:15px; border-radius:8px; border:2px solid #e2e8f0; display:flex; flex-direction:column; justify-content:space-between;">
-                    <div>
-                        <h4 style="margin-bottom:15px; color:#333; border-bottom:2px solid #eee; padding-bottom:8px;">
-                            📚 Mis Libros Seleccionados (<span id="user-cart-count">0</span>)
-                        </h4>
-                        <div id="user-cart-items-list" style="min-height:150px; max-height:280px; overflow-y:auto; margin-bottom:15px;">
-                            <p style="color:#888; font-style:italic; text-align:center; padding-top:40px;">No has seleccionado libros todavía.</p>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div id="user-cart-deadline-info" style="font-size:13px; color:#0d6efd; font-weight:bold; background:#e7f1ff; padding:10px; border-radius:6px; margin-bottom:12px; text-align:center;">
-                            Devolución estimada: 3 días hábiles
-                        </div>
-                        <button onclick="confirmarSolicitudPrestamo()" class="btn-success" style="width:100%; padding:12px; font-size:15px; font-weight:bold;">
-                            🚀 Confirmar Solicitud de Préstamo
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- PESTAÑA 3: MIS RESERVAS -->
+        <!-- PESTAÑA 2: SOLICITAR Y VER MIS RESERVAS -->
         <div id="portal-tab-reservas" class="portal-tab-content" style="display:none;">
-            <h3 style="margin-bottom:15px; color:#0f172a;">🔖 Mis Reservas Solicitadas</h3>
+            <div style="background:#f8f9fa; padding:18px; border-radius:10px; border:1px solid #cbd5e1; margin-bottom:25px;">
+                <h3 style="margin-bottom:12px; color:#0d6efd;">🔖 Solicitar Nueva Reserva de Libro</h3>
+                <p style="font-size:13px; color:#64748b; margin-bottom:12px;">Busca el libro o ejemplar que deseas apartar. Si el ejemplar está disponible, se reservará exclusivamente para ti durante 12 horas para que pases a recogerlo. Si está prestado, se reservará para asignártelo en cuanto sea devuelto.</p>
+                
+                <div style="display:flex; gap:10px; margin-bottom:12px;">
+                    <input type="text" id="user-search-book-input" placeholder="Buscar por código (ej: 011201), título o autor..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:6px; font-size:14px;" onkeydown="if(event.key==='Enter') buscarLibrosPortal()">
+                    <button onclick="buscarLibrosPortal()" class="btn-primary" style="padding:10px 18px; font-weight:bold;">🔍 Buscar</button>
+                </div>
+                <div id="user-search-book-results" style="max-height:280px; overflow-y:auto; background:#fff; border-radius:6px; border:1px solid #e2e8f0;"></div>
+            </div>
+
+            <h3 style="margin-bottom:15px; color:#0f172a;">📑 Estado de Mis Reservas Solicitadas</h3>
             <div class="table-responsive">
                 <table class="bib-table">
                     <thead>
@@ -305,6 +275,6 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/portal.js?v=2026082508"></script>
+<script src="js/portal.js?v=2026082509"></script>
 </body>
 </html>

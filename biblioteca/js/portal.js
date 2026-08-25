@@ -188,7 +188,7 @@ function cerrarSesionUsuario() {
 // ---------- 2. NAVEGACIÓN POR PESTAÑAS EN EL PORTAL DE USUARIO ----------
 
 function switchPortalTab(tabName) {
-    const tabs = ['prestamos', 'solicitar', 'reservas', 'catalogo'];
+    const tabs = ['prestamos', 'reservas', 'catalogo'];
     tabs.forEach(t => {
         const btn = document.getElementById(`tab-btn-${t}`);
         const content = document.getElementById(`portal-tab-${t}`);
@@ -197,8 +197,10 @@ function switchPortalTab(tabName) {
     });
 
     if (tabName === 'prestamos') cargarMisPrestamos();
-    if (tabName === 'solicitar') buscarLibrosPortal();
-    if (tabName === 'reservas') cargarMisReservas();
+    if (tabName === 'reservas') {
+        buscarLibrosPortal();
+        cargarMisReservas();
+    }
     if (tabName === 'catalogo') cargarCatalogoPortal();
 }
 

@@ -34,7 +34,230 @@
                     <h3>Estadística</h3>
                     <p>Gestión de registros, reportes y eventos de biblioteca</p>
                 </div>
+                <div class="module-card" onclick="showPrestamosSection()">
+                    <div class="module-icon">📖</div>
+                    <h3>Préstamos y Libros</h3>
+                    <p>Carrito de préstamos multi-libro, registro de catálogo, reservas y monitoreo</p>
+                </div>
             </div>
+        </div>
+    </div>
+
+    <!-- SECCIÓN PRÉSTAMOS Y LIBROS -->
+    <div id="prestamos-section" class="section hidden">
+        <div class="header">
+            <h1>📖 Gestor de Préstamos y Libros</h1>
+            <div class="header-right">
+                <button onclick="showDashboardBib()" class="btn-secondary">← Volver a Biblioteca</button>
+            </div>
+        </div>
+        <div class="container">
+            <!-- Pestañas de Navegación -->
+            <div class="bib-tabs">
+                <button class="bib-tab-btn active" id="btn-tab-carrito" onclick="switchBibTab('carrito')">🛒 Carrito de Préstamos</button>
+                <button class="bib-tab-btn" id="btn-tab-monitoreo" onclick="switchBibTab('monitoreo')">⏱️ Monitoreo en Tiempo Real</button>
+                <button class="bib-tab-btn" id="btn-tab-catalogo" onclick="switchBibTab('catalogo')">📚 Inventario de Libros</button>
+                <button class="bib-tab-btn" id="btn-tab-reservas" onclick="switchBibTab('reservas')">🔖 Cola de Reservas</button>
+            </div>
+
+            <!-- PESTAÑA 1: CARRITO DE PRÉSTAMOS -->
+            <div id="tab-carrito" class="bib-tab-content card">
+                <h3 style="margin-bottom:15px; color:#333;">🛒 Registro de Préstamo Multi-libro</h3>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:20px;">
+                    
+                    <!-- Columna Izquierda: Selección de Usuario y Búsqueda de Libros -->
+                    <div>
+                        <!-- Usuario Seleccionado -->
+                        <div style="background:#f8f9fa; padding:15px; border-radius:8px; border:1px solid #ddd; margin-bottom:15px;">
+                            <h4 style="margin-bottom:10px; color:#007bff;">👤 Usuario solicitante</h4>
+                            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                                <input type="text" id="cart-user-input" placeholder="Ingresa CI o Código Único..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:6px;">
+                                <button onclick="buscarUsuarioCarrito()" class="btn-primary">Buscar</button>
+                            </div>
+                            <div id="cart-user-info" style="font-size:14px; color:#555;">
+                                <em>No hay usuario seleccionado. Busca un CI arriba.</em>
+                            </div>
+                        </div>
+
+                        <!-- Buscador de Libros -->
+                        <div style="background:#f8f9fa; padding:15px; border-radius:8px; border:1px solid #ddd;">
+                            <h4 style="margin-bottom:10px; color:#28a745;">📖 Buscar Libro para Agregar</h4>
+                            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                                <input type="text" id="cart-book-input" placeholder="Buscar por COD o Título..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:6px;">
+                                <button onclick="buscarLibroParaCarrito()" class="btn-success">Buscar</button>
+                            </div>
+                            <div id="cart-book-results" style="max-height:220px; overflow-y:auto;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Columna Derecha: Resumen del Carrito y Confirmación -->
+                    <div style="background:#fff; padding:15px; border-radius:8px; border:2px solid #e9ecef; display:flex; flex-direction:column; justify-content:space-between;">
+                        <div>
+                            <h4 style="margin-bottom:15px; color:#333; border-bottom:2px solid #eee; padding-bottom:8px;">
+                                📚 Libros en el Carrito (<span id="cart-count">0</span>)
+                            </h4>
+                            <div id="cart-items-list" style="min-height:150px; max-height:300px; overflow-y:auto; margin-bottom:15px;">
+                                <p style="color:#888; font-style:italic; text-align:center; padding-top:40px;">El carrito está vacío</p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <!-- Cálculo de Días Hábiles -->
+                            <div style="background:#e8f4fd; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #b6d4fe;">
+                                <div style="font-size:13px; color:#0c5460; margin-bottom:5px;"><strong>⏱️ Duración del préstamo:</strong> 3 días hábiles (Lunes a Viernes)</div>
+                                <div style="font-size:14px; font-weight:bold; color:#0056b3;" id="cart-deadline-info">
+                                    Fecha límite de devolución: --
+                                </div>
+                            </div>
+                            
+                            <button onclick="confirmarPrestamoCarrito()" class="btn-primary" style="width:100%; padding:14px; font-size:16px; font-weight:bold;">
+                                ✅ Confirmar y Prestar Libros
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- PESTAÑA 2: MONITOREO EN TIEMPO REAL -->
+            <div id="tab-monitoreo" class="bib-tab-content card hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+                    <h3>⏱️ Monitoreo de Préstamos en Tiempo Real</h3>
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="mon-search-input" oninput="filtrarMonitoreo()" placeholder="Filtrar por CI, Nombre o Libro..." style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                        <select id="mon-filter-status" onchange="filtrarMonitoreo()" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                            <option value="">Todos los Estados</option>
+                            <option value="activo">En Préstamo (Activo)</option>
+                            <option value="vencido">Vencidos</option>
+                            <option value="devuelto">Devueltos</option>
+                        </select>
+                        <button onclick="cargarMonitoreoPrestamos()" class="btn-secondary" style="padding:8px 12px;">🔄 Actualizar</button>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="bib-table">
+                        <thead>
+                            <tr>
+                                <th>Usuario / CI</th>
+                                <th>Libro(s) Prestado(s)</th>
+                                <th>Fecha Préstamo</th>
+                                <th>Límite Devolución</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="monitoreo-table-body">
+                            <tr><td colspan="6" style="text-align:center; color:#666;">Cargando préstamos...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- PESTAÑA 3: INVENTARIO Y CATÁLOGO DE LIBROS -->
+            <div id="tab-catalogo" class="bib-tab-content card hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+                    <h3>📚 Catálogo de Libros</h3>
+                    <button onclick="abrirModalLibro()" class="btn-primary">+ Registrar Nuevo Libro</button>
+                </div>
+
+                <!-- Formulario de Registro / Edición (Oculto por defecto o expandible) -->
+                <div id="form-libro-container" style="display:none; background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #ddd; margin-bottom:20px;">
+                    <h4 id="form-libro-title" style="margin-bottom:15px; color:#007bff;">Registrar Nuevo Libro</h4>
+                    <input type="hidden" id="book-edit-id">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:15px;">
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">COD (Código): *</label>
+                            <input type="text" id="book-input-cod" placeholder="Ej: LIB-001" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">TÍTULO: *</label>
+                            <input type="text" id="book-input-titulo" placeholder="Título completo" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">AUTOR:</label>
+                            <input type="text" id="book-input-autor" placeholder="Autor(es)" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">EDITORIAL:</label>
+                            <input type="text" id="book-input-editorial" placeholder="Editorial" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">AÑO:</label>
+                            <input type="number" id="book-input-anio" placeholder="Ej: 2024" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">Nº EJEM. (Total Ejemplares): *</label>
+                            <input type="number" id="book-input-ejemplares" value="1" min="1" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">ESTADO (Condición física):</label>
+                            <select id="book-input-estado-fisico" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                                <option value="Excelente">Excelente</option>
+                                <option value="Bueno" selected>Bueno</option>
+                                <option value="Regular">Regular</option>
+                                <option value="Deteriorado">Deteriorado</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="guardarLibro()" class="btn-success">💾 Guardar Libro</button>
+                        <button onclick="cerrarFormLibro()" class="btn-secondary">Cancelar</button>
+                    </div>
+                </div>
+
+                <!-- Buscador de Catálogo -->
+                <div style="margin-bottom:15px;">
+                    <input type="text" id="cat-search-input" oninput="filtrarCatalogo()" placeholder="🔍 Buscar libro por COD, Título o Autor..." style="width:100%; padding:10px 15px; border:1px solid #ccc; border-radius:8px; font-size:15px;">
+                </div>
+
+                <!-- Tabla de Libros -->
+                <div class="table-responsive">
+                    <table class="bib-table">
+                        <thead>
+                            <tr>
+                                <th>COD</th>
+                                <th>TÍTULO</th>
+                                <th>AUTOR</th>
+                                <th>EDITORIAL</th>
+                                <th>AÑO</th>
+                                <th>EJEMPLARES (Tot / Disp)</th>
+                                <th>ESTADO FÍSICO</th>
+                                <th>DISPONIBILIDAD</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="catalogo-table-body">
+                            <tr><td colspan="9" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- PESTAÑA 4: COLA DE RESERVAS -->
+            <div id="tab-reservas" class="bib-tab-content card hidden">
+                <h3 style="margin-bottom:15px;">🔖 Cola de Reservas Pendientes</h3>
+                <p style="color:#666; font-size:14px; margin-bottom:15px;">
+                    Las reservas registradas impiden que un libro en préstamo pueda ser renovado por el usuario actual sin antes ser devuelto.
+                </p>
+                <div class="table-responsive">
+                    <table class="bib-table">
+                        <thead>
+                            <tr>
+                                <th>Libro (COD / Título)</th>
+                                <th>Solicitante / CI</th>
+                                <th>Fecha Reserva</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reservas-table-body">
+                            <tr><td colspan="5" style="text-align:center; color:#666;">Cargando reservas...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
     </div>
 

@@ -35,6 +35,58 @@ async function crearTablasBiblioteca() {
             timestamp TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `);
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_libros (
+            id TEXT PRIMARY KEY,
+            codigo_libro TEXT UNIQUE NOT NULL,
+            titulo TEXT NOT NULL,
+            autor TEXT,
+            editorial TEXT,
+            anio INTEGER,
+            cantidad_total INTEGER DEFAULT 1,
+            cantidad_disponible INTEGER DEFAULT 1,
+            estado_fisico TEXT DEFAULT 'Bueno',
+            estado_disponibilidad TEXT DEFAULT 'disponible',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_prestamos (
+            id TEXT PRIMARY KEY,
+            persona_ci TEXT NOT NULL,
+            persona_nombre TEXT NOT NULL,
+            persona_tipo TEXT NOT NULL,
+            fecha_prestamo TEXT NOT NULL,
+            fecha_devolucion_prevista TEXT NOT NULL,
+            fecha_devolucion_real TEXT,
+            estado TEXT DEFAULT 'activo',
+            observaciones TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_prestamo_detalles (
+            id TEXT PRIMARY KEY,
+            prestamo_id TEXT NOT NULL,
+            libro_id TEXT NOT NULL,
+            libro_codigo TEXT NOT NULL,
+            libro_titulo TEXT NOT NULL,
+            estado_item TEXT DEFAULT 'prestado',
+            fecha_devolucion_item TEXT
+        )
+    `);
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_reservas (
+            id TEXT PRIMARY KEY,
+            libro_id TEXT NOT NULL,
+            persona_ci TEXT NOT NULL,
+            persona_nombre TEXT NOT NULL,
+            persona_tipo TEXT NOT NULL,
+            estado TEXT DEFAULT 'pendiente',
+            fecha_reserva TEXT DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 }
 
 function toggleDropdown() {
@@ -686,10 +738,637 @@ async function onQrScanBib(qrData) {
     await buscarYRegistrar();
 
     // Reanudar cámara después de 2 segundos
-    setTimeout(async () => {
+        setTimeout(async () => {
         if (html5QrCodeBib && html5QrCodeBib.isScanning === false) {
             try { await html5QrCodeBib.resume(); } catch(e) {}
         }
         isScanningBib = false;
     }, 2000);
+}
+
+// ========== SISTEMA DE PRÉSTAMOS Y CATÁLOGO DE LIBROS ==========
+
+let cartUser = null;
+let cartItems = [];
+let catalogoLibrosCache = [];
+let prestamosCache = [];
+let reservasCache = [];
+
+// Helper: Calcular fecha límite de devolución considerando solo días hábiles (Lunes a Viernes)
+function calcularFechaDevolucion(fechaInicio = new Date(), diasHabiles = 3) {
+    let fecha = new Date(fechaInicio);
+    let agregados = 0;
+    while (agregados < diasHabiles) {
+        fecha.setDate(fecha.getDate() + 1);
+        const diaSemana = fecha.getDay(); // 0 = Domingo, 6 = Sábado
+        if (diaSemana !== 0 && diaSemana !== 6) {
+            agregados++;
+        }
+    }
+    return fecha.toISOString().split('T')[0];
+}
+
+// Formatear fechas para UI
+function formatearFecha(fechaStr) {
+    if (!fechaStr) return '--';
+    const partes = fechaStr.split('T')[0].split('-');
+    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    return fechaStr;
+}
+
+// Navegación de Pestañas en Préstamos y Libros
+function showPrestamosSection() {
+    showSection('prestamos-section');
+    switchBibTab('carrito');
+}
+
+function switchBibTab(tabName) {
+    document.querySelectorAll('.bib-tab-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.bib-tab-btn').forEach(btn => btn.classList.remove('active'));
+
+    const contentEl = document.getElementById(`tab-${tabName}`);
+    const btnEl = document.getElementById(`btn-tab-${tabName}`);
+    if (contentEl) contentEl.classList.remove('hidden');
+    if (btnEl) btnEl.classList.add('active');
+
+    if (tabName === 'catalogo') cargarCatalogoLibros();
+    if (tabName === 'monitoreo') cargarMonitoreoPrestamos();
+    if (tabName === 'reservas') cargarReservas();
+    if (tabName === 'carrito') actualizarVistaCarrito();
+}
+
+// ---------- 1. LÓGICA DEL CARRITO DE PRÉSTAMOS ----------
+
+async function buscarUsuarioCarrito() {
+    const ci = document.getElementById('cart-user-input').value.trim();
+    const infoEl = document.getElementById('cart-user-info');
+    if (!ci) { alert('Ingresa un CI o código único'); return; }
+
+    infoEl.innerHTML = '<p style="color:#666;">Buscando usuario...</p>';
+    cartUser = null;
+
+    // 1. Buscar estudiante
+    const estRes = await tursodb.query(`SELECT * FROM estudiantes WHERE dni = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
+    if (estRes.rows && estRes.rows.length > 0) {
+        const est = estRes.rows[0];
+        cartUser = {
+            ci: est.dni || est.codigo_unico,
+            nombre: `${est.nombre} ${est.apellido_paterno} ${est.apellido_materno || ''}`.trim(),
+            tipo: 'estudiante',
+            detalle: `🎓 ${est.especialidad} | Año ${est.anio_formacion}`
+        };
+    }
+
+    // 2. Buscar personal administrativo
+    if (!cartUser) {
+        const admRes = await tursodb.query(`SELECT * FROM administrativos WHERE dni = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
+        if (admRes.rows && admRes.rows.length > 0) {
+            const adm = admRes.rows[0];
+            cartUser = {
+                ci: adm.dni || adm.codigo_unico,
+                nombre: `${adm.nombre} ${adm.apellido_paterno} ${adm.apellido_materno || ''}`.trim(),
+                tipo: 'personal',
+                detalle: `👔 ${adm.personal} | ${adm.cargo}`
+            };
+        }
+    }
+
+    // 3. Buscar en tabla usuarios general
+    if (!cartUser) {
+        const usrRes = await tursodb.query(`SELECT * FROM usuarios WHERE ci = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
+        if (usrRes.rows && usrRes.rows.length > 0) {
+            const u = usrRes.rows[0];
+            cartUser = {
+                ci: u.ci || u.codigo_unico,
+                nombre: `${u.nombre} ${u.apellido_paterno || ''} ${u.apellido_materno || ''}`.trim(),
+                tipo: 'usuario',
+                detalle: `👤 ${u.rol.toUpperCase()}`
+            };
+        }
+    }
+
+    if (!cartUser) {
+        infoEl.innerHTML = `<span style="color:#dc3545;">❌ No se encontró persona con CI/Código: <strong>${ci}</strong></span>`;
+        return;
+    }
+
+    // Consultar préstamos activos previos del usuario
+    const prevLoans = await tursodb.query(
+        `SELECT COUNT(*) as cant FROM biblioteca_prestamos WHERE persona_ci = ? AND estado = 'activo'`,
+        [cartUser.ci]
+    );
+    const cantActivos = prevLoans.rows && prevLoans.rows[0] ? prevLoans.rows[0].cant : 0;
+
+    infoEl.innerHTML = `
+        <div style="background:#e3f2fd; padding:10px; border-radius:6px; border:1px solid #90caf9;">
+            <strong style="font-size:15px; color:#1565c0;">${cartUser.nombre}</strong><br>
+            <span style="font-size:12px; color:#555;">CI: ${cartUser.ci} | ${cartUser.detalle}</span><br>
+            <span class="badge ${cantActivos > 0 ? 'badge-warning' : 'badge-success'}" style="margin-top:5px;">
+                ${cantActivos > 0 ? `⚠️ tiene ${cantActivos} préstamo(s) activo(s)` : '✅ Sin préstamos pendientes'}
+            </span>
+        </div>
+    `;
+}
+
+async function buscarLibroParaCarrito() {
+    const q = document.getElementById('cart-book-input').value.trim();
+    const resultsEl = document.getElementById('cart-book-results');
+    if (!q) { resultsEl.innerHTML = ''; return; }
+
+    resultsEl.innerHTML = '<p style="color:#666; font-size:13px;">Buscando libros...</p>';
+    const res = await tursodb.query(
+        `SELECT * FROM biblioteca_libros WHERE codigo_libro LIKE ? OR titulo LIKE ? OR autor LIKE ? LIMIT 10`,
+        [`%${q}%`, `%${q}%`, `%${q}%`]
+    );
+
+    if (!res.rows || res.rows.length === 0) {
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron libros con esa búsqueda.</p>';
+        return;
+    }
+
+    resultsEl.innerHTML = res.rows.map(b => {
+        const enCarrito = cartItems.some(i => i.id === b.id);
+        const disp = parseInt(b.cantidad_disponible !== null ? b.cantidad_disponible : (b.cantidad_total || 1));
+        const disabled = disp <= 0 || enCarrito;
+        const btnText = enCarrito ? 'En Carrito' : (disp <= 0 ? 'Agotado' : '+ Agregar');
+
+        return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #eee; background:#fff;">
+                <div style="font-size:13px;">
+                    <strong>[${b.codigo_libro}]</strong> ${b.titulo}<br>
+                    <small style="color:#666;">Autor: ${b.autor || 'N/A'} | Disp: <span style="font-weight:bold; color:${disp > 0 ? 'green':'red'};">${disp}/${b.cantidad_total}</span></small>
+                </div>
+                <button onclick="agregarAlCarrito('${b.id}', '${escapeHtml(b.codigo_libro)}', '${escapeHtml(b.titulo)}', ${disp})" 
+                        class="${disabled ? 'btn-secondary' : 'btn-success'}" 
+                        style="padding:5px 10px; font-size:12px;" ${disabled ? 'disabled' : ''}>
+                    ${btnText}
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+}
+
+function agregarAlCarrito(id, codigo, titulo, disp) {
+    if (cartItems.some(i => i.id === id)) return;
+    cartItems.push({ id, codigo, titulo, disp });
+    actualizarVistaCarrito();
+    buscarLibroParaCarrito();
+}
+
+function removerDelCarrito(id) {
+    cartItems = cartItems.filter(i => i.id !== id);
+    actualizarVistaCarrito();
+    buscarLibroParaCarrito();
+}
+
+function actualizarVistaCarrito() {
+    const listEl = document.getElementById('cart-items-list');
+    const countEl = document.getElementById('cart-count');
+    const deadlineEl = document.getElementById('cart-deadline-info');
+
+    if (countEl) countEl.textContent = cartItems.length;
+
+    const fechaPrevista = calcularFechaDevolucion(new Date(), 3);
+    if (deadlineEl) {
+        deadlineEl.textContent = `Fecha límite de devolución: ${formatearFecha(fechaPrevista)} (3 días hábiles)`;
+    }
+
+    if (!listEl) return;
+
+    if (cartItems.length === 0) {
+        listEl.innerHTML = '<p style="color:#888; font-style:italic; text-align:center; padding-top:40px;">El carrito está vacío</p>';
+        return;
+    }
+
+    listEl.innerHTML = cartItems.map((item, index) => `
+        <div class="cart-item">
+            <div>
+                <div class="cart-item-title">${index + 1}. [${item.codigo}] ${item.titulo}</div>
+                <div class="cart-item-sub">Stock disponible: ${item.disp}</div>
+            </div>
+            <button onclick="removerDelCarrito('${item.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️ Quitar</button>
+        </div>
+    `).join('');
+}
+
+async function confirmarPrestamoCarrito() {
+    if (!cartUser) {
+        alert('⚠️ Selecciona un usuario solicitante antes de confirmar el préstamo.');
+        return;
+    }
+    if (cartItems.length === 0) {
+        alert('⚠️ Agrega al menos un libro al carrito.');
+        return;
+    }
+
+    const fechaHoy = new Date().toISOString().split('T')[0];
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 3);
+    const prestamoId = Date.now().toString();
+
+    // 1. Insertar Cabecera de Préstamo
+    await tursodb.query(
+        `INSERT INTO biblioteca_prestamos (id, persona_ci, persona_nombre, persona_tipo, fecha_prestamo, fecha_devolucion_prevista, estado)
+         VALUES (?, ?, ?, ?, ?, ?, 'activo')`,
+        [prestamoId, cartUser.ci, cartUser.nombre, cartUser.tipo, fechaHoy, fechaDevolucionPrevista]
+    );
+
+    // 2. Insertar Detalle de Libros y Actualizar Stock
+    for (const item of cartItems) {
+        const detalleId = `${prestamoId}-${item.id}`;
+        await tursodb.query(
+            `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, libro_codigo, libro_titulo, estado_item)
+             VALUES (?, ?, ?, ?, ?, 'prestado')`,
+            [detalleId, prestamoId, item.id, item.codigo, item.titulo]
+        );
+
+        // Descontar 1 de cantidad_disponible
+        const nDisp = Math.max(0, item.disp - 1);
+        const estadoDisp = nDisp === 0 ? 'agotado' : 'prestado_parcial';
+        await tursodb.query(
+            `UPDATE biblioteca_libros SET cantidad_disponible = ?, estado_disponibilidad = ? WHERE id = ?`,
+            [nDisp, estadoDisp, item.id]
+        );
+    }
+
+    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} libro(s) a ${cartUser.nombre}.\nFecha de devolución: ${formatearFecha(fechaDevolucionPrevista)}`);
+
+    // Resetear formulario y redirigir a monitoreo
+    cartUser = null;
+    cartItems = [];
+    document.getElementById('cart-user-input').value = '';
+    document.getElementById('cart-book-input').value = '';
+    document.getElementById('cart-user-info').innerHTML = '<em>No hay usuario seleccionado. Busca un CI arriba.</em>';
+    document.getElementById('cart-book-results').innerHTML = '';
+    actualizarVistaCarrito();
+
+    switchBibTab('monitoreo');
+}
+
+// ---------- 2. MONITOREO DE PRÉSTAMOS EN TIEMPO REAL ----------
+
+async function cargarMonitoreoPrestamos() {
+    const tbody = document.getElementById('monitoreo-table-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#666;">Cargando préstamos...</td></tr>';
+
+    const res = await tursodb.query(`SELECT * FROM biblioteca_prestamos ORDER BY created_at DESC`);
+    if (!res.rows || res.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No hay registros de préstamos.</td></tr>';
+        return;
+    }
+
+    prestamosCache = res.rows;
+    await renderTablaMonitoreo(prestamosCache);
+}
+
+async function renderTablaMonitoreo(lista) {
+    const tbody = document.getElementById('monitoreo-table-body');
+    const hoy = new Date().toISOString().split('T')[0];
+
+    if (lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No hay préstamos con los filtros seleccionados.</td></tr>';
+        return;
+    }
+
+    let rowsHtml = '';
+
+    for (const p of lista) {
+        const detRes = await tursodb.query(
+            `SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`,
+            [p.id]
+        );
+        const detalles = detRes.rows || [];
+
+        const librosText = detalles.map(d => {
+            const st = d.estado_item === 'devuelto' ? ' <small style="color:green;">(Devuelto)</small>' : '';
+            return `• <strong>[${d.libro_codigo}]</strong> ${d.libro_titulo}${st}`;
+        }).join('<br>');
+
+        let estadoBadge = '';
+        if (p.estado === 'devuelto') {
+            estadoBadge = '<span class="badge badge-success">Devuelto</span>';
+        } else if (p.fecha_devolucion_prevista < hoy) {
+            estadoBadge = '<span class="badge badge-danger">⚠️ Vencido</span>';
+        } else {
+            estadoBadge = '<span class="badge badge-warning">En Préstamo</span>';
+        }
+
+        const esActivo = p.estado === 'activo';
+
+        rowsHtml += `
+            <tr>
+                <td>
+                    <strong>${p.persona_nombre}</strong><br>
+                    <small style="color:#666;">CI: ${p.persona_ci} (${p.persona_tipo})</small>
+                </td>
+                <td>${librosText || 'Sin detalles'}</td>
+                <td>${formatearFecha(p.fecha_prestamo)}</td>
+                <td><strong>${formatearFecha(p.fecha_devolucion_prevista)}</strong></td>
+                <td>${estadoBadge}</td>
+                <td>
+                    ${esActivo ? `
+                        <button onclick="devolverPrestamoCompleto('${p.id}')" class="btn-success" style="padding:4px 8px; font-size:12px; margin-bottom:3px;">↩️ Devolver</button>
+                        <button onclick="renovarPrestamo('${p.id}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar</button>
+                    ` : '<small style="color:#888;">Finalizado</small>'}
+                </td>
+            </tr>
+        `;
+    }
+
+    tbody.innerHTML = rowsHtml;
+}
+
+function filtrarMonitoreo() {
+    const q = document.getElementById('mon-search-input').value.toLowerCase().trim();
+    const st = document.getElementById('mon-filter-status').value;
+    const hoy = new Date().toISOString().split('T')[0];
+
+    const filtrados = prestamosCache.filter(p => {
+        const matchQ = p.persona_nombre.toLowerCase().includes(q) || p.persona_ci.toLowerCase().includes(q);
+        let matchSt = true;
+        if (st === 'activo') matchSt = p.estado === 'activo' && p.fecha_devolucion_prevista >= hoy;
+        if (st === 'vencido') matchSt = p.estado === 'activo' && p.fecha_devolucion_prevista < hoy;
+        if (st === 'devuelto') matchSt = p.estado === 'devuelto';
+        return matchQ && matchSt;
+    });
+
+    renderTablaMonitoreo(filtrados);
+}
+
+async function devolverPrestamoCompleto(prestamoId) {
+    if (!confirm('¿Confirmar la devolución de todos los libros de este préstamo?')) return;
+
+    const fechaHoy = new Date().toISOString().split('T')[0];
+
+    const detRes = await tursodb.query(`SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [prestamoId]);
+    const detalles = detRes.rows || [];
+
+    for (const d of detalles) {
+        if (d.estado_item === 'prestado') {
+            await tursodb.query(
+                `UPDATE biblioteca_prestamo_detalles SET estado_item = 'devuelto', fecha_devolucion_item = ? WHERE id = ?`,
+                [fechaHoy, d.id]
+            );
+
+            const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
+            if (libRes.rows && libRes.rows.length > 0) {
+                const lib = libRes.rows[0];
+                const nDisp = (lib.cantidad_disponible || 0) + 1;
+                const estadoDisp = nDisp >= lib.cantidad_total ? 'disponible' : 'prestado_parcial';
+                await tursodb.query(
+                    `UPDATE biblioteca_libros SET cantidad_disponible = ?, estado_disponibilidad = ? WHERE id = ?`,
+                    [nDisp, estadoDisp, d.libro_id]
+                );
+            }
+        }
+    }
+
+    await tursodb.query(
+        `UPDATE biblioteca_prestamos SET estado = 'devuelto', fecha_devolucion_real = ? WHERE id = ?`,
+        [fechaHoy, prestamoId]
+    );
+
+    alert('✅ Devolución registrada correctamente. Stock restaurado.');
+    await cargarMonitoreoPrestamos();
+}
+
+async function renovarPrestamo(prestamoId) {
+    const detRes = await tursodb.query(`SELECT libro_id, libro_titulo FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [prestamoId]);
+    const detalles = detRes.rows || [];
+
+    let libroConDemanda = null;
+    for (const d of detalles) {
+        const resCheck = await tursodb.query(
+            `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
+            [d.libro_id]
+        );
+        if (resCheck.rows && resCheck.rows[0] && resCheck.rows[0].cant > 0) {
+            libroConDemanda = d.libro_titulo;
+            break;
+        }
+    }
+
+    if (libroConDemanda) {
+        alert(`⚠️ NO SE PUEDE RENOVAR EL PRÉSTAMO:\nEl libro "${libroConDemanda}" tiene reservas pendientes por otros usuarios.\nPor políticas de biblioteca, el libro debe ser devuelto.`);
+        return;
+    }
+
+    const nuevaFecha = calcularFechaDevolucion(new Date(), 3);
+    await tursodb.query(
+        `UPDATE biblioteca_prestamos SET fecha_devolucion_prevista = ? WHERE id = ?`,
+        [nuevaFecha, prestamoId]
+    );
+
+    alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nLa nueva fecha límite de devolución es: ${formatearFecha(nuevaFecha)}`);
+    await cargarMonitoreoPrestamos();
+}
+
+// ---------- 3. CATÁLOGO E INVENTARIO DE LIBROS ----------
+
+async function cargarCatalogoLibros() {
+    const tbody = document.getElementById('catalogo-table-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>';
+
+    const res = await tursodb.query(`SELECT * FROM biblioteca_libros ORDER BY created_at DESC`);
+    if (!res.rows || res.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No hay libros registrados en el catálogo.</td></tr>';
+        return;
+    }
+
+    catalogoLibrosCache = res.rows;
+    renderTablaCatalogo(catalogoLibrosCache);
+}
+
+function renderTablaCatalogo(lista) {
+    const tbody = document.getElementById('catalogo-table-body');
+    if (!tbody) return;
+
+    if (lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No se encontraron libros.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = lista.map(b => {
+        const total = b.cantidad_total || 1;
+        const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
+        let badgeDisp = '<span class="badge badge-success">Disponible</span>';
+        if (disp === 0) badgeDisp = '<span class="badge badge-danger">Agotado</span>';
+        else if (disp < total) badgeDisp = '<span class="badge badge-warning">Prestado Parcial</span>';
+
+        return `
+            <tr>
+                <td><strong>${b.codigo_libro}</strong></td>
+                <td>${b.titulo}</td>
+                <td>${b.autor || '-'}</td>
+                <td>${b.editorial || '-'}</td>
+                <td>${b.anio || '-'}</td>
+                <td><strong>${disp} / ${total}</strong></td>
+                <td><span class="badge badge-secondary">${b.estado_fisico || 'Bueno'}</span></td>
+                <td>${badgeDisp}</td>
+                <td>
+                    <button onclick="editarLibro('${b.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
+                    ${disp === 0 ? `<button onclick="solicitarReservaLibro('${b.id}', '${escapeHtml(b.titulo)}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔖 Reservar</button>` : ''}
+                    <button onclick="eliminarLibro('${b.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function filtrarCatalogo() {
+    const q = document.getElementById('cat-search-input').value.toLowerCase().trim();
+    const filtrados = catalogoLibrosCache.filter(b => 
+        (b.codigo_libro && b.codigo_libro.toLowerCase().includes(q)) ||
+        (b.titulo && b.titulo.toLowerCase().includes(q)) ||
+        (b.autor && b.autor.toLowerCase().includes(q))
+    );
+    renderTablaCatalogo(filtrados);
+}
+
+function abrirModalLibro() {
+    document.getElementById('form-libro-container').style.display = 'block';
+    document.getElementById('form-libro-title').textContent = 'Registrar Nuevo Libro';
+    document.getElementById('book-edit-id').value = '';
+    document.getElementById('book-input-cod').value = '';
+    document.getElementById('book-input-titulo').value = '';
+    document.getElementById('book-input-autor').value = '';
+    document.getElementById('book-input-editorial').value = '';
+    document.getElementById('book-input-anio').value = '';
+    document.getElementById('book-input-ejemplares').value = '1';
+    document.getElementById('book-input-estado-fisico').value = 'Bueno';
+}
+
+function cerrarFormLibro() {
+    document.getElementById('form-libro-container').style.display = 'none';
+}
+
+function editarLibro(id) {
+    const b = catalogoLibrosCache.find(x => x.id === id);
+    if (!b) return;
+
+    abrirModalLibro();
+    document.getElementById('form-libro-title').textContent = `Editar Libro [${b.codigo_libro}]`;
+    document.getElementById('book-edit-id').value = b.id;
+    document.getElementById('book-input-cod').value = b.codigo_libro;
+    document.getElementById('book-input-titulo').value = b.titulo;
+    document.getElementById('book-input-autor').value = b.autor || '';
+    document.getElementById('book-input-editorial').value = b.editorial || '';
+    document.getElementById('book-input-anio').value = b.anio || '';
+    document.getElementById('book-input-ejemplares').value = b.cantidad_total || 1;
+    document.getElementById('book-input-estado-fisico').value = b.estado_fisico || 'Bueno';
+}
+
+async function guardarLibro() {
+    const editId = document.getElementById('book-edit-id').value;
+    const cod = document.getElementById('book-input-cod').value.trim();
+    const titulo = document.getElementById('book-input-titulo').value.trim();
+    const autor = document.getElementById('book-input-autor').value.trim();
+    const editorial = document.getElementById('book-input-editorial').value.trim();
+    const anio = parseInt(document.getElementById('book-input-anio').value) || null;
+    const cantTotal = parseInt(document.getElementById('book-input-ejemplares').value) || 1;
+    const estadoFisico = document.getElementById('book-input-estado-fisico').value;
+
+    if (!cod || !titulo) {
+        alert('⚠️ COD y TÍTULO son campos obligatorios');
+        return;
+    }
+
+    if (editId) {
+        await tursodb.query(
+            `UPDATE biblioteca_libros SET codigo_libro = ?, titulo = ?, autor = ?, editorial = ?, anio = ?, cantidad_total = ?, cantidad_disponible = ?, estado_fisico = ? WHERE id = ?`,
+            [cod, titulo, autor, editorial, anio, cantTotal, cantTotal, estadoFisico, editId]
+        );
+        alert('✅ Libro actualizado correctamente');
+    } else {
+        const newId = Date.now().toString();
+        await tursodb.query(
+            `INSERT INTO biblioteca_libros (id, codigo_libro, titulo, autor, editorial, anio, cantidad_total, cantidad_disponible, estado_fisico, estado_disponibilidad)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'disponible')`,
+            [newId, cod, titulo, autor, editorial, anio, cantTotal, cantTotal, estadoFisico]
+        );
+        alert('✅ Libro registrado correctamente');
+    }
+
+    cerrarFormLibro();
+    await cargarCatalogoLibros();
+}
+
+async function eliminarLibro(id) {
+    if (!confirm('¿Estás seguro de eliminar este libro del catálogo?')) return;
+    await tursodb.query(`DELETE FROM biblioteca_libros WHERE id = ?`, [id]);
+    alert('🗑️ Libro eliminado del catálogo');
+    await cargarCatalogoLibros();
+}
+
+// ---------- 4. COLA DE RESERVAS ----------
+
+async function cargarReservas() {
+    const tbody = document.getElementById('reservas-table-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#666;">Cargando reservas...</td></tr>';
+
+    const res = await tursodb.query(`SELECT * FROM biblioteca_reservas ORDER BY created_at DESC`);
+    if (!res.rows || res.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">No hay reservas registradas.</td></tr>';
+        return;
+    }
+
+    reservasCache = res.rows;
+
+    tbody.innerHTML = reservasCache.map(r => {
+        const stBadge = r.estado === 'pendiente' 
+            ? '<span class="badge badge-warning">Pendiente</span>'
+            : '<span class="badge badge-secondary">Atendida / Cancelada</span>';
+
+        return `
+            <tr>
+                <td><strong>${r.libro_id}</strong></td>
+                <td>${r.persona_nombre}<br><small style="color:#666;">CI: ${r.persona_ci}</small></td>
+                <td>${formatearFecha(r.fecha_reserva)}</td>
+                <td>${stBadge}</td>
+                <td>
+                    ${r.estado === 'pendiente' ? `
+                        <button onclick="cancelarReserva('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">Cancelar</button>
+                    ` : '-'}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function solicitarReservaLibro(libroId, titulo) {
+    const ci = prompt(`Ingresa el CI de la persona que desea reservar "${titulo}":`);
+    if (!ci) return;
+
+    let nombre = ci;
+    let tipo = 'usuario';
+    const estRes = await tursodb.query(`SELECT * FROM estudiantes WHERE dni = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
+    if (estRes.rows && estRes.rows.length > 0) {
+        nombre = `${estRes.rows[0].nombre} ${estRes.rows[0].apellido_paterno}`;
+        tipo = 'estudiante';
+    }
+
+    await tursodb.query(
+        `INSERT INTO biblioteca_reservas (id, libro_id, persona_ci, persona_nombre, persona_tipo, estado)
+         VALUES (?, ?, ?, ?, ?, 'pendiente')`,
+        [Date.now().toString(), libroId, ci, nombre, tipo]
+    );
+
+    alert(`🔖 RESERVA REGISTRADA\nSe registró la reserva del libro para ${nombre}.\nEste libro no podrá ser renovado por quien lo tenga prestado en este momento.`);
+    switchBibTab('reservas');
+}
+
+async function cancelarReserva(reservaId) {
+    if (!confirm('¿Cancelar esta reserva?')) return;
+    await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'cancelada' WHERE id = ?`, [reservaId]);
+    await cargarReservas();
 }

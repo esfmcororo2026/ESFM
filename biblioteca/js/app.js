@@ -1164,6 +1164,7 @@ async function renderTablaMonitoreo(lista) {
             `SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`,
             [p.id]
         );
+        const detalles = detRes.rows || [];
         const librosText = detalles.map(d => {
             const isDevuelto = d.estado_item === 'devuelto';
             const titleOnly = `${d.libro_titulo}${isDevuelto ? ' (DEVUELTO)' : ''}`;

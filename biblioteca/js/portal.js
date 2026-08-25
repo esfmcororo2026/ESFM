@@ -610,12 +610,12 @@ function renderCatalogoPortal(lista) {
             return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:2px 7px; border-radius:6px; margin:2px 3px 2px 0; font-size:12px; font-weight:bold; display:inline-block;" title="${e.codigo_ejemplar} — ${label}">${e.codigo_ejemplar}</span>`;
         }).join('');
 
-        // Botón de acción
-        let accionBtn = '';
+        // Disponibilidad informativa
+        let dispBadge = '';
         if (disp > 0) {
-            accionBtn = `<span style="color:#28a745; font-size:12px; font-weight:bold;">✅ Disponible</span>`;
+            dispBadge = `<span class="badge badge-success">Disponible (${disp}/${total})</span>`;
         } else {
-            accionBtn = `<button onclick="solicitarReservaDesdeCatalogo('${b.id}', '${escapeHtml(b.titulo)}')" style="background:#6c757d; color:#fff; border:none; padding:5px 10px; border-radius:6px; font-size:12px; cursor:pointer;">🔖 Reservar</button>`;
+            dispBadge = `<span class="badge badge-danger">Agotado (0/${total})</span>`;
         }
 
         return `
@@ -624,7 +624,7 @@ function renderCatalogoPortal(lista) {
                 <td style="font-size:13px;"><strong>${b.titulo}</strong></td>
                 <td style="font-size:13px; color:#555;">${b.autor || '-'}</td>
                 <td>${chips || '<span style="color:#aaa;">Sin ejemplares</span>'}</td>
-                <td style="text-align:center;">${accionBtn}</td>
+                <td style="text-align:center;">${dispBadge}</td>
             </tr>
         `;
     }).join('');
@@ -634,19 +634,4 @@ function renderCatalogoPortal(lista) {
             ? `Mostrando ${limit} de ${lista.length} libros. Usa el buscador para filtrar.`
             : `${lista.length} libro(s) en el catálogo.`;
     }
-}
-
-async function solicitarReservaDesdeCatalogo(libroId, titulo) {
-    if (!currentUser) return;
-    if (!confirm(`¿Deseas solicitar una reserva para:\n"${titulo}"?`)) return;
-
-    const reservaId = Date.now().toString();
-    await tursodb.query(
-        `INSERT INTO biblioteca_reservas (id, libro_id, persona_ci, persona_nombre, persona_tipo, estado)
-         VALUES (?, ?, ?, ?, ?, 'pendiente')`,
-        [reservaId, libroId, currentUser.ci, currentUser.nombre, currentUser.tipo]
-    );
-
-    alert(`✅ RESERVA REGISTRADA\n"${titulo}"\nSe te notificará cuando el libro esté disponible.`);
-    switchPortalTab('reservas');
 }

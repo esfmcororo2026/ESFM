@@ -1458,3 +1458,190 @@ async function cancelarReserva(reservaId) {
     await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'cancelada' WHERE id = ?`, [reservaId]);
     await cargarReservas();
 }
+
+// ---------- 5. CARGA MASIVA DE LIBROS DESDE EXCEL ----------
+
+let excelParsedRows = [];
+
+function descargarPlantillaExcel() {
+    const dataEjemplo = [
+        {
+            "COD": "01",
+            "Nº": "1",
+            "AUTOR": "Pérez, Juan",
+            "TÍTULO": "Pedagogía y Didáctica General",
+            "EDITORIAL": "Santillana",
+            "AÑO": 2024,
+            "Nº EJEM.": 3,
+            "ESTADO": "Bueno"
+        },
+        {
+            "COD": "01",
+            "Nº": "2",
+            "AUTOR": "Gómez, María",
+            "TÍTULO": "Historia de la Educación Boliviana",
+            "EDITORIAL": "La Hoguera",
+            "AÑO": 2023,
+            "Nº EJEM.": 2,
+            "ESTADO": "Excelente"
+        },
+        {
+            "COD": "02",
+            "Nº": "1",
+            "AUTOR": "Rodríguez, Carlos",
+            "TÍTULO": "Matemática Aplicada para Secundaria",
+            "EDITORIAL": "Don Bosco",
+            "AÑO": 2022,
+            "Nº EJEM.": 4,
+            "ESTADO": "Bueno"
+        }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(dataEjemplo);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Libros");
+    XLSX.writeFile(wb, "Plantilla_Carga_Libros_ESFM.xlsx");
+}
+
+function procesarArchivoExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    document.getElementById('excel-file-name').textContent = `📄 Archivo seleccionado: ${file.name}`;
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        try {
+            const data = e.target.result;
+            const workbook = XLSX.read(data, { type: 'binary' });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+            if (!jsonRows || jsonRows.length === 0) {
+                alert('⚠️ El archivo Excel está vacío.');
+                return;
+            }
+
+            excelParsedRows = [];
+            let totalEjemplaresCount = 0;
+
+            jsonRows.forEach((row, idx) => {
+                const cod = String(row['COD'] || row['cod'] || row['CODIGO'] || row['AREA'] || '').trim();
+                const num = String(row['Nº'] || row['N°'] || row['NO'] || row['NUMERO'] || row['NUM'] || '').trim();
+                const titulo = String(row['TÍTULO'] || row['TITULO'] || row['NOMBRE'] || '').trim();
+                const autor = String(row['AUTOR'] || row['AUTORES'] || '').trim();
+                const editorial = String(row['EDITORIAL'] || '').trim();
+                const anio = parseInt(row['AÑO'] || row['ANO'] || 0) || null;
+                const cantEjem = parseInt(row['Nº EJEM.'] || row['N° EJEM.'] || row['EJEMPLARES'] || row['CANTIDAD'] || 1) || 1;
+                const estado = String(row['ESTADO'] || row['ESTADO FISICO'] || 'Bueno').trim();
+
+                if (cod && num && titulo) {
+                    const codigosGenerados = [];
+                    for (let i = 1; i <= cantEjem; i++) {
+                        codigosGenerados.push(`${cod}${num}${i}`);
+                    }
+                    totalEjemplaresCount += cantEjem;
+
+                    excelParsedRows.push({
+                        cod,
+                        num,
+                        titulo,
+                        autor,
+                        editorial,
+                        anio,
+                        cantEjem,
+                        estado,
+                        codigosGenerados
+                    });
+                }
+            });
+
+            if (excelParsedRows.length === 0) {
+                alert('⚠️ No se encontraron filas válidas. Verifica que el Excel tenga las columnas COD, Nº y TÍTULO.');
+                return;
+            }
+
+            document.getElementById('excel-summary-container').style.display = 'block';
+            document.getElementById('excel-count-books').textContent = excelParsedRows.length;
+            document.getElementById('excel-count-copies').textContent = totalEjemplaresCount;
+
+            const tbody = document.getElementById('excel-preview-tbody');
+            tbody.innerHTML = excelParsedRows.map((r, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td><strong>${r.cod}</strong></td>
+                    <td><strong>${r.num}</strong></td>
+                    <td><strong>${r.titulo}</strong></td>
+                    <td>${r.autor || '-'}</td>
+                    <td>${r.editorial || '-'}</td>
+                    <td>${r.anio || '-'}</td>
+                    <td><strong>${r.cantEjem}</strong></td>
+                    <td><span class="badge badge-secondary">${r.estado}</span></td>
+                    <td style="font-family:monospace; font-size:12px; color:#0056b3;">
+                        ${r.codigosGenerados.join(', ')}
+                    </td>
+                </tr>
+            `).join('');
+
+            document.getElementById('btn-confirmar-excel').disabled = false;
+
+        } catch (err) {
+            console.error('Error procesando Excel:', err);
+            alert('❌ Error al leer el archivo Excel. Asegúrate de subir un archivo válido (.xlsx o .xls).');
+        }
+    };
+
+    reader.readAsBinaryString(file);
+}
+
+async function confirmarCargaMasivaExcel() {
+    if (!excelParsedRows || excelParsedRows.length === 0) {
+        alert('⚠️ No hay datos listos para importar.');
+        return;
+    }
+
+    if (!confirm(`¿Confirmar la carga masiva de ${excelParsedRows.length} libros a la base de datos?`)) return;
+
+    const btn = document.getElementById('btn-confirmar-excel');
+    btn.disabled = true;
+    btn.textContent = '⏳ Cargando libros a Turso DB... Por favor espera...';
+
+    let creadosLibros = 0;
+    let creadosEjemplares = 0;
+
+    for (const r of excelParsedRows) {
+        const libroId = `${Date.now()}-${creadosLibros}`;
+        
+        // 1. Insertar libro
+        await tursodb.query(
+            `INSERT INTO biblioteca_libros (id, area_cod, libro_num, titulo, autor, editorial, anio, cantidad_total, cantidad_disponible, estado_fisico)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [libroId, r.cod, r.num, r.titulo, r.autor, r.editorial, r.anio, r.cantEjem, r.cantEjem, r.estado]
+        );
+        creadosLibros++;
+
+        // 2. Insertar cada ejemplar
+        for (let i = 1; i <= r.cantEjem; i++) {
+            const codigoEjem = `${r.cod}${r.num}${i}`;
+            const ejemId = `${libroId}-${i}`;
+            await tursodb.query(
+                `INSERT INTO biblioteca_ejemplares (id, libro_id, codigo_ejemplar, ejemplar_num, estado, estado_fisico)
+                 VALUES (?, ?, ?, ?, 'disponible', ?)`,
+                [ejemId, libroId, codigoEjem, i, r.estado]
+            );
+            creadosEjemplares++;
+        }
+    }
+
+    alert(`✅ CARGA MASIVA COMPLETADA CON ÉXITO\nSe registraron ${creadosLibros} libros y ${creadosEjemplares} ejemplares únicos.`);
+
+    excelParsedRows = [];
+    document.getElementById('excel-file-input').value = '';
+    document.getElementById('excel-file-name').textContent = '';
+    document.getElementById('excel-summary-container').style.display = 'none';
+    document.getElementById('excel-preview-tbody').innerHTML = '<tr><td colspan="10" style="text-align:center; color:#888;">Carga un archivo Excel para ver la vista previa.</td></tr>';
+    btn.textContent = '🚀 Confirmar Carga Masiva a la Base de Datos';
+
+    switchBibTab('catalogo');
+}

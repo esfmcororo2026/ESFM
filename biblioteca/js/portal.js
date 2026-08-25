@@ -320,41 +320,34 @@ async function buscarLibrosPortal() {
     }
 
     resultsEl.innerHTML = rows.map(item => {
-        const enCarrito = userCartItems.some(c => c.ejemId === item.ejem_id);
         const estaDisponible = item.ejem_estado === 'disponible';
         const estaPrestado = item.ejem_estado === 'prestado';
         const estaReservado = item.ejem_estado === 'reservado';
 
         let accionesHtml = '';
 
-        if (enCarrito) {
-            accionesHtml = `<span class="badge badge-info">En Carrito</span>`;
-        } else if (estaDisponible) {
+        if (estaDisponible) {
             accionesHtml = `
-                <button onclick="agregarAlCarritoUsuario('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})')" 
-                        class="btn-success" style="padding:5px 10px; font-size:12px; margin-right:4px;">
-                    + Seleccionar
-                </button>
                 <button onclick="solicitarReservaConExpiracion('${item.libro_id}', '${item.ejem_id}', '${escapeHtml(item.titulo)}', '${escapeHtml(item.codigo_ejemplar)}', true)" 
-                        class="btn-info" style="padding:5px 10px; font-size:12px;">
+                        class="btn-info" style="padding:7px 14px; font-size:13px; font-weight:bold;">
                     🔖 Reservar (12h)
                 </button>
             `;
         } else if (estaPrestado) {
             accionesHtml = `
-                <span class="badge badge-danger" style="margin-right:6px;">PRESTADO</span>
+                <span class="badge badge-danger" style="margin-right:8px;">PRESTADO</span>
                 <button onclick="solicitarReservaConExpiracion('${item.libro_id}', '${item.ejem_id}', '${escapeHtml(item.titulo)}', '${escapeHtml(item.codigo_ejemplar)}', false)" 
-                        class="btn-info" style="padding:5px 10px; font-size:12px;">
+                        class="btn-info" style="padding:7px 14px; font-size:13px; font-weight:bold;">
                     🔖 Reservar
                 </button>
             `;
         } else if (estaReservado) {
-            accionesHtml = `<span class="badge badge-secondary">RESERVADO</span>`;
+            accionesHtml = `<span class="badge badge-secondary" style="padding:6px 12px;">RESERVADO</span>`;
         }
 
         return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #eee; background:#fff;">
-                <div style="font-size:13px; flex:1; padding-right:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee; background:#fff;">
+                <div style="font-size:13px; flex:1; padding-right:12px;">
                     <strong style="color:#0d6efd;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong><br>
                     <small style="color:#666;">Autor: ${item.autor || 'N/A'} | Ejemplar #${item.ejemplar_num}</small>
                 </div>

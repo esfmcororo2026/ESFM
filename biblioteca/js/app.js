@@ -1294,19 +1294,32 @@ async function renovarPrestamo(prestamoId) {
 
 // ---------- 3. CATÁLOGO E INVENTARIO DE LIBROS ----------
 
+let catalogoEjemplaresMap = {};
+
 async function cargarCatalogoLibros() {
     const tbody = document.getElementById('catalogo-table-body');
     if (!tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>';
 
-    const res = await tursodb.query(`SELECT * FROM biblioteca_libros ORDER BY created_at DESC`);
+    const res = await tursodb.query(`SELECT * FROM biblioteca_libros ORDER BY CAST(area_cod AS INTEGER) ASC, CAST(libro_num AS INTEGER) ASC`);
     if (!res.rows || res.rows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#888;">No hay libros registrados en el catálogo.</td></tr>';
         return;
     }
 
     catalogoLibrosCache = res.rows;
+
+    // Traer todos los ejemplares 1 sola vez y guardar en mapa global
+    const ejemRes = await tursodb.query(`SELECT libro_id, codigo_ejemplar, estado, ejemplar_num FROM biblioteca_ejemplares ORDER BY ejemplar_num ASC`);
+    const todosEjemplares = ejemRes.rows || [];
+    
+    catalogoEjemplaresMap = {};
+    todosEjemplares.forEach(e => {
+        if (!catalogoEjemplaresMap[e.libro_id]) catalogoEjemplaresMap[e.libro_id] = [];
+        catalogoEjemplaresMap[e.libro_id].push(e);
+    });
+
     await renderTablaCatalogo(catalogoLibrosCache);
 }
 
@@ -1319,17 +1332,6 @@ async function renderTablaCatalogo(lista) {
         return;
     }
 
-    // Traer todos los ejemplares en 1 sola consulta para rendimiento instantáneo
-    const ejemRes = await tursodb.query(`SELECT libro_id, codigo_ejemplar, estado, ejemplar_num FROM biblioteca_ejemplares ORDER BY ejemplar_num ASC`);
-    const todosEjemplares = ejemRes.rows || [];
-    
-    // Agrupar por libro_id
-    const mapEjemplares = {};
-    todosEjemplares.forEach(e => {
-        if (!mapEjemplares[e.libro_id]) mapEjemplares[e.libro_id] = [];
-        mapEjemplares[e.libro_id].push(e);
-    });
-
     // Mostrar un límite de 200 filas para fluidez del DOM
     const limit = 200;
     const listaRender = lista.slice(0, limit);
@@ -1338,7 +1340,7 @@ async function renderTablaCatalogo(lista) {
         const total = b.cantidad_total || 1;
         const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
 
-        const ejems = mapEjemplares[b.id] || [];
+        const ejems = catalogoEjemplaresMap[b.id] || [];
         const codigosList = ejems.map(e => {
             const color = e.estado === 'disponible' ? '#155724' : '#721c24';
             const bg = e.estado === 'disponible' ? '#d4edda' : '#f8d7da';
@@ -1366,20 +1368,39 @@ async function renderTablaCatalogo(lista) {
     }).join('');
 
     if (lista.length > limit) {
-        rowsHtml += `<tr><td colspan="10" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} libros de ${lista.length} registrados (Usa el buscador arriba para filtrar en tiempo real).</td></tr>`;
+        rowsHtml += `<tr><td colspan="10" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} libros de ${lista.length} registrados (Usa el buscador arriba para filtrar por código, título o autor).</td></tr>`;
     }
 
     tbody.innerHTML = rowsHtml;
 }
 
 function filtrarCatalogo() {
-    const q = document.getElementById('cat-search-input').value.toLowerCase().trim();
-    const filtrados = catalogoLibrosCache.filter(b => 
-        (b.area_cod && b.area_cod.toLowerCase().includes(q)) ||
-        (b.libro_num && b.libro_num.toLowerCase().includes(q)) ||
-        (b.titulo && b.titulo.toLowerCase().includes(q)) ||
-        (b.autor && b.autor.toLowerCase().includes(q))
-    );
+    const rawQ = document.getElementById('cat-search-input').value.trim().toLowerCase();
+    if (!rawQ) {
+        renderTablaCatalogo(catalogoLibrosCache);
+        return;
+    }
+
+    const cleanQ = rawQ.replace(/['"]/g, '');
+
+    const filtrados = catalogoLibrosCache.filter(b => {
+        const area = String(b.area_cod || '').toLowerCase();
+        const num = String(b.libro_num || '').toLowerCase();
+        const combo = `${pad2(area)}${pad2(num)}`;
+        const titulo = String(b.titulo || '').toLowerCase();
+        const autor = String(b.autor || '').toLowerCase();
+        const edit = String(b.editorial || '').toLowerCase();
+
+        // Buscar coincidencias directas en código de área, número de libro, combinación (ej: 0101), título, autor o editorial
+        if (area.includes(cleanQ) || num.includes(cleanQ) || combo.includes(cleanQ) || titulo.includes(cleanQ) || autor.includes(cleanQ) || edit.includes(cleanQ)) {
+            return true;
+        }
+
+        // Buscar coincidencia en códigos de ejemplar (ej: 010101)
+        const ejems = catalogoEjemplaresMap[b.id] || [];
+        return ejems.some(e => String(e.codigo_ejemplar || '').toLowerCase().includes(cleanQ));
+    });
+
     renderTablaCatalogo(filtrados);
 }
 

@@ -2,6 +2,47 @@
 
 let currentUser = null;
 let userCartItems = [];
+const PORTAL_SESSION_KEY = 'esfm_portal_user';
+
+// ---------- 0. SEGURIDAD: NAVEGACIÓN BLOQUEADA DENTRO DEL PORTAL ----------
+
+// Al cargar la página, verificar si hay sesión previa en esta pestaña
+window.addEventListener('DOMContentLoaded', () => {
+    const savedUser = sessionStorage.getItem(PORTAL_SESSION_KEY);
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            mostrarPanelUsuario();
+        } catch (e) {
+            sessionStorage.removeItem(PORTAL_SESSION_KEY);
+        }
+    }
+
+    // Trampa de historial: empujamos 2 entradas falsas para que el botón
+    // Atrás navegue dentro de la misma página y no la abandone.
+    history.pushState({ portal: true }, '', window.location.href);
+    history.pushState({ portal: true }, '', window.location.href);
+});
+
+// Interceptar el botón Atrás del navegador
+window.addEventListener('popstate', (e) => {
+    if (currentUser) {
+        // Si el usuario está autenticado, reempujar el estado para que NO salga
+        history.pushState({ portal: true }, '', window.location.href);
+    } else {
+        // Si no está autenticado (está en la pantalla de CI), permitir salir
+        // pero volver a poner al menos 1 entrada de historial
+        history.pushState({ portal: true }, '', window.location.href);
+    }
+});
+
+// Bloquear la navegación si el usuario intenta irse mientras está logueado
+window.addEventListener('beforeunload', (e) => {
+    if (currentUser) {
+        e.preventDefault();
+        e.returnValue = '¿Seguro que deseas salir? Cierra la sesión correctamente con el botón de salida.';
+    }
+});
 
 // Helper pad2
 function pad2(n) {
@@ -97,21 +138,11 @@ async function ingresarAlPortal() {
             return;
         }
 
+        // Guardar sesión en sessionStorage (se borra al cerrar pestaña)
+        sessionStorage.setItem(PORTAL_SESSION_KEY, JSON.stringify(currentUser));
+
         // Mostrar pantalla encapsulada del usuario
-        document.getElementById('section-user-auth').style.display = 'none';
-        document.getElementById('section-user-portal').style.display = 'block';
-        document.getElementById('portal-header-right').style.display = 'block';
-
-        // Actualizar banner de perfil
-        document.getElementById('portal-user-name').textContent = currentUser.nombre;
-        document.getElementById('portal-user-detail').textContent = `C.I.: ${currentUser.ci} | ${currentUser.detalle}`;
-        
-        const badgeEl = document.getElementById('portal-user-badge');
-        badgeEl.textContent = currentUser.tipo.toUpperCase();
-        badgeEl.className = currentUser.tipo === 'estudiante' ? 'badge badge-primary' : 'badge badge-info';
-
-        // Cargar préstamos del usuario por defecto
-        switchPortalTab('prestamos');
+        mostrarPanelUsuario();
 
     } catch (err) {
         console.error('Error al ingresar al portal:', err);
@@ -120,9 +151,33 @@ async function ingresarAlPortal() {
     }
 }
 
+function mostrarPanelUsuario() {
+    document.getElementById('section-user-auth').style.display = 'none';
+    document.getElementById('section-user-portal').style.display = 'block';
+    document.getElementById('portal-header-right').style.display = 'block';
+
+    // Actualizar banner de perfil
+    document.getElementById('portal-user-name').textContent = currentUser.nombre;
+    document.getElementById('portal-user-detail').textContent = `C.I.: ${currentUser.ci} | ${currentUser.detalle}`;
+    
+    const badgeEl = document.getElementById('portal-user-badge');
+    badgeEl.textContent = currentUser.tipo.toUpperCase();
+    badgeEl.className = currentUser.tipo === 'estudiante' ? 'badge badge-primary' : 'badge badge-info';
+
+    // Cargar préstamos por defecto
+    switchPortalTab('prestamos');
+}
+
 function cerrarSesionUsuario() {
+    if (!confirm('¿Estás seguro de que deseas cerrar tu sesión?')) return;
+
+    // Limpiar sesión
+    sessionStorage.removeItem(PORTAL_SESSION_KEY);
     currentUser = null;
     userCartItems = [];
+
+    // Ocultar el aviso beforeunload temporalmente para el cierre de sesión normal
+    // (no aplica porque solo navegamos dentro de la misma página)
     document.getElementById('user-ci-input').value = '';
     document.getElementById('auth-error-msg').style.display = 'none';
     document.getElementById('section-user-auth').style.display = 'block';

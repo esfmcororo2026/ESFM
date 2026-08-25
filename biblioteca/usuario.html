@@ -178,9 +178,10 @@
 
         <!-- Pestañas del Portal de Usuario -->
         <div class="portal-nav-tabs">
-            <button class="portal-tab-btn active" id="tab-btn-prestamos" onclick="switchPortalTab('prestamos')">📚 Mis Préstamos</button>
+            <button class="portal-tab-btn active" id="tab-btn-prestamos" onclick="switchPortalTab('prestamos')">📋 Mis Préstamos</button>
             <button class="portal-tab-btn" id="tab-btn-solicitar" onclick="switchPortalTab('solicitar')">🛒 Solicitar Préstamo</button>
             <button class="portal-tab-btn" id="tab-btn-reservas" onclick="switchPortalTab('reservas')">🔖 Mis Reservas</button>
+            <button class="portal-tab-btn" id="tab-btn-catalogo" onclick="switchPortalTab('catalogo')">📚 Catálogo</button>
         </div>
 
         <!-- PESTAÑA 1: MIS PRÉSTAMOS -->
@@ -262,6 +263,41 @@
                 </table>
             </div>
         </div>
+        <!-- PESTAÑA 4: CATÁLOGO DE LA BIBLIOTECA -->
+        <div id="portal-tab-catalogo" class="portal-tab-content" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:18px;">
+                <h3 style="color:#0f172a; margin:0;">📚 Catálogo de la Biblioteca</h3>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <span style="background:#d4edda; color:#155724; border:1px solid #c3e6cb; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:bold;">● Disponible</span>
+                    <span style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:bold;">● Prestado</span>
+                    <span style="background:#e2e3e5; color:#383d41; border:1px solid #d6d8db; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:bold;">● Reservado</span>
+                </div>
+            </div>
+
+            <!-- Buscador -->
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <input type="text" id="catalogo-search-input" placeholder="Buscar por código (ej: 011201), título o autor..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px; font-size:14px;" oninput="filtrarCatalogoPortal()">
+            </div>
+
+            <!-- Tabla del catálogo -->
+            <div class="table-responsive">
+                <table class="bib-table" id="catalogo-portal-table">
+                    <thead>
+                        <tr>
+                            <th style="width:80px;">Código</th>
+                            <th>Título</th>
+                            <th>Autor</th>
+                            <th style="width:180px;">Ejemplares (Estado)</th>
+                            <th style="width:100px;">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="catalogo-portal-tbody">
+                        <tr><td colspan="5" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="catalogo-portal-pagination" style="text-align:center; margin-top:15px; color:#64748b; font-size:13px;"></div>
+        </div>
 
     </div>
 
@@ -269,6 +305,6 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/portal.js?v=2026082501"></script>
+<script src="js/portal.js?v=2026082502"></script>
 </body>
 </html>

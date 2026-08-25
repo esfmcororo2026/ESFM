@@ -188,7 +188,7 @@ function cerrarSesionUsuario() {
 // ---------- 2. NAVEGACIÓN POR PESTAÑAS EN EL PORTAL DE USUARIO ----------
 
 function switchPortalTab(tabName) {
-    const tabs = ['prestamos', 'solicitar', 'reservas'];
+    const tabs = ['prestamos', 'solicitar', 'reservas', 'catalogo'];
     tabs.forEach(t => {
         const btn = document.getElementById(`tab-btn-${t}`);
         const content = document.getElementById(`portal-tab-${t}`);
@@ -199,6 +199,7 @@ function switchPortalTab(tabName) {
     if (tabName === 'prestamos') cargarMisPrestamos();
     if (tabName === 'solicitar') buscarLibrosPortal();
     if (tabName === 'reservas') cargarMisReservas();
+    if (tabName === 'catalogo') cargarCatalogoPortal();
 }
 
 // ---------- 3. VISTA DE MIS PRÉSTAMOS E HISTORIAL ----------
@@ -443,4 +444,127 @@ async function cancelarReservaUsuario(reservaId) {
     if (!confirm('¿Cancelar esta solicitud de reserva?')) return;
     await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'cancelada' WHERE id = ?`, [reservaId]);
     await cargarMisReservas();
+}
+
+// ---------- 6. CATÁLOGO PÚBLICO DE LA BIBLIOTECA ----------
+
+let _catalogoLibros = [];      // cache de libros
+let _catalogoEjemplares = {};  // mapa libro_id -> [ejemplares]
+
+async function cargarCatalogoPortal() {
+    const tbody = document.getElementById('catalogo-portal-tbody');
+    const paginEl = document.getElementById('catalogo-portal-pagination');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>';
+
+    // Solo cargar desde la BD la primera vez (cachear para filtros en cliente)
+    if (_catalogoLibros.length === 0) {
+        const libRes = await tursodb.query(
+            `SELECT id, area_cod, libro_num, titulo, autor, cantidad_total, cantidad_disponible
+             FROM biblioteca_libros
+             ORDER BY CAST(area_cod AS INTEGER) ASC, CAST(libro_num AS INTEGER) ASC`
+        );
+        _catalogoLibros = libRes.rows || [];
+
+        const ejemRes = await tursodb.query(
+            `SELECT libro_id, codigo_ejemplar, estado FROM biblioteca_ejemplares ORDER BY ejemplar_num ASC`
+        );
+        _catalogoEjemplares = {};
+        (ejemRes.rows || []).forEach(e => {
+            if (!_catalogoEjemplares[e.libro_id]) _catalogoEjemplares[e.libro_id] = [];
+            _catalogoEjemplares[e.libro_id].push(e);
+        });
+    }
+
+    renderCatalogoPortal(_catalogoLibros);
+}
+
+function filtrarCatalogoPortal() {
+    const q = (document.getElementById('catalogo-search-input')?.value || '').trim().toLowerCase();
+    if (!q) {
+        renderCatalogoPortal(_catalogoLibros);
+        return;
+    }
+    const filtrados = _catalogoLibros.filter(b => {
+        const area = String(b.area_cod || '').toLowerCase();
+        const num = String(b.libro_num || '').toLowerCase();
+        const combo = `${pad2(area)}${pad2(num)}`;
+        const titulo = String(b.titulo || '').toLowerCase();
+        const autor = String(b.autor || '').toLowerCase();
+        if (area.includes(q) || num.includes(q) || combo.includes(q) || titulo.includes(q) || autor.includes(q)) return true;
+        // Buscar por código completo de ejemplar (ej: 010101)
+        const ejems = _catalogoEjemplares[b.id] || [];
+        return ejems.some(e => String(e.codigo_ejemplar || '').toLowerCase().includes(q));
+    });
+    renderCatalogoPortal(filtrados);
+}
+
+function renderCatalogoPortal(lista) {
+    const tbody = document.getElementById('catalogo-portal-tbody');
+    const paginEl = document.getElementById('catalogo-portal-pagination');
+    if (!tbody) return;
+
+    if (lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888; padding:20px;">No se encontraron libros.</td></tr>';
+        if (paginEl) paginEl.textContent = '';
+        return;
+    }
+
+    const limit = 150;
+    const listaRender = lista.slice(0, limit);
+
+    tbody.innerHTML = listaRender.map(b => {
+        const total = b.cantidad_total || 1;
+        const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
+        const ejems = _catalogoEjemplares[b.id] || [];
+
+        // Chips de ejemplares con estado en color
+        const chips = ejems.map(e => {
+            const st = (e.estado || 'disponible').toLowerCase();
+            let bg = '#d4edda', color = '#155724', border = '#c3e6cb', label = 'Disponible';
+            if (st === 'prestado')       { bg = '#f8d7da'; color = '#721c24'; border = '#f5c6cb'; label = 'Prestado'; }
+            else if (st === 'reservado') { bg = '#e2e3e5'; color = '#383d41'; border = '#d6d8db'; label = 'Reservado'; }
+            return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:2px 7px; border-radius:6px; margin:2px 3px 2px 0; font-size:12px; font-weight:bold; display:inline-block;" title="${e.codigo_ejemplar} — ${label}">${e.codigo_ejemplar}</span>`;
+        }).join('');
+
+        // Botón de acción
+        let accionBtn = '';
+        if (disp > 0) {
+            accionBtn = `<span style="color:#28a745; font-size:12px; font-weight:bold;">✅ Disponible</span>`;
+        } else {
+            accionBtn = `<button onclick="solicitarReservaDesdeCatalogo('${b.id}', '${escapeHtml(b.titulo)}')" style="background:#6c757d; color:#fff; border:none; padding:5px 10px; border-radius:6px; font-size:12px; cursor:pointer;">🔖 Reservar</button>`;
+        }
+
+        return `
+            <tr>
+                <td style="font-family:monospace; font-weight:bold; color:#0d6efd;">${pad2(b.area_cod)}${pad2(b.libro_num)}</td>
+                <td style="font-size:13px;"><strong>${b.titulo}</strong></td>
+                <td style="font-size:13px; color:#555;">${b.autor || '-'}</td>
+                <td>${chips || '<span style="color:#aaa;">Sin ejemplares</span>'}</td>
+                <td style="text-align:center;">${accionBtn}</td>
+            </tr>
+        `;
+    }).join('');
+
+    if (paginEl) {
+        paginEl.textContent = lista.length > limit
+            ? `Mostrando ${limit} de ${lista.length} libros. Usa el buscador para filtrar.`
+            : `${lista.length} libro(s) en el catálogo.`;
+    }
+}
+
+async function solicitarReservaDesdeCatalogo(libroId, titulo) {
+    if (!currentUser) return;
+    if (!confirm(`¿Deseas solicitar una reserva para:\n"${titulo}"?`)) return;
+
+    const reservaId = Date.now().toString();
+    await tursodb.query(
+        `INSERT INTO biblioteca_reservas (id, libro_id, persona_ci, persona_nombre, persona_tipo, estado)
+         VALUES (?, ?, ?, ?, ?, 'pendiente')`,
+        [reservaId, libroId, currentUser.ci, currentUser.nombre, currentUser.tipo]
+    );
+
+    alert(`✅ RESERVA REGISTRADA\n"${titulo}"\nSe te notificará cuando el libro esté disponible.`);
+    switchPortalTab('reservas');
 }

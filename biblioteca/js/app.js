@@ -783,26 +783,82 @@ let catalogoLibrosCache = [];
 let prestamosCache = [];
 let reservasCache = [];
 
-// Helper: Calcular fecha límite de devolución considerando solo días hábiles (Lunes a Viernes)
-function calcularFechaDevolucion(fechaInicio = new Date(), diasHabiles = 3) {
-    let fecha = new Date(fechaInicio);
-    let agregados = 0;
-    while (agregados < diasHabiles) {
-        fecha.setDate(fecha.getDate() + 1);
-        const diaSemana = fecha.getDay(); // 0 = Domingo, 6 = Sábado
-        if (diaSemana !== 0 && diaSemana !== 6) {
-            agregados++;
-        }
+// Helper para parsear fechas de forma segura evitando desfases de zona horaria en cadenas YYYY-MM-DD
+function parseFecha(fechaStr) {
+    if (!fechaStr) return new Date();
+    if (typeof fechaStr === 'object' && fechaStr instanceof Date) return fechaStr;
+    if (fechaStr.includes('T')) {
+        const d = new Date(fechaStr);
+        if (!isNaN(d.getTime())) return d;
     }
-    return fecha.toISOString().split('T')[0];
+    const partes = fechaStr.split('T')[0].split('-');
+    if (partes.length === 3) {
+        return new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]), 12, 0, 0);
+    }
+    const d = new Date(fechaStr);
+    return isNaN(d.getTime()) ? new Date() : d;
 }
 
-// Formatear fechas para UI
+// Helper: Calcular fecha límite de devolución sumando 70 horas hábiles (Lunes a Viernes)
+// El conteo transcurre hora a hora omitiendo las 48 horas del fin de semana (Sábado y Domingo).
+function calcularFechaDevolucion(fechaInicio = new Date(), horasHabiles = 70) {
+    let fecha = new Date(parseFecha(fechaInicio).getTime());
+
+    // Si el inicio cae en fin de semana, mover al Lunes siguiente a las 00:00
+    if (fecha.getDay() === 6) {       // Sábado → Lunes
+        fecha.setDate(fecha.getDate() + 2);
+        fecha.setHours(0, 0, 0, 0);
+    } else if (fecha.getDay() === 0) { // Domingo → Lunes
+        fecha.setDate(fecha.getDate() + 1);
+        fecha.setHours(0, 0, 0, 0);
+    }
+
+    let horasContadas = 0;
+    while (horasContadas < horasHabiles) {
+        fecha.setTime(fecha.getTime() + 60 * 60 * 1000);
+        const dia = fecha.getDay();
+        if (dia >= 1 && dia <= 5) { // Lunes (1) a Viernes (5)
+            horasContadas++;
+        }
+        if (dia === 6) { // Si llega a Sábado, saltar las 48 horas del fin de semana
+            fecha.setTime(fecha.getTime() + 48 * 60 * 60 * 1000);
+        }
+    }
+    return fecha.toISOString();
+}
+
+// Formatear fechas solo dia/mes/año
 function formatearFecha(fechaStr) {
     if (!fechaStr) return '--';
-    const partes = fechaStr.split('T')[0].split('-');
-    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
-    return fechaStr;
+    try {
+        const d = parseFecha(fechaStr);
+        const dia = String(d.getDate()).padStart(2, '0');
+        const mes = String(d.getMonth() + 1).padStart(2, '0');
+        const anio = d.getFullYear();
+        return `${dia}/${mes}/${anio}`;
+    } catch (e) {
+        return fechaStr;
+    }
+}
+
+// Formatear fecha y hora para UI (DD/MM/YYYY HH:mm)
+function formatearFechaHora(fechaStr) {
+    if (!fechaStr) return '--';
+    try {
+        if (!fechaStr.includes('T')) {
+            return formatearFecha(fechaStr);
+        }
+        const d = new Date(fechaStr);
+        if (isNaN(d.getTime())) return formatearFecha(fechaStr);
+        const dia = String(d.getDate()).padStart(2, '0');
+        const mes = String(d.getMonth() + 1).padStart(2, '0');
+        const anio = d.getFullYear();
+        const hrs = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${dia}/${mes}/${anio} ${hrs}:${mins}`;
+    } catch (e) {
+        return fechaStr;
+    }
 }
 
 // Navegación de Pestañas en Préstamos y Libros
@@ -1064,12 +1120,14 @@ function actualizarVistaCarrito() {
     const listEl = document.getElementById('cart-items-list');
     const countEl = document.getElementById('cart-count');
     const deadlineEl = document.getElementById('cart-deadline-info');
+    const daysSelectEl = document.getElementById('cart-days-select');
 
     if (countEl) countEl.textContent = cartItems.length;
 
-    const fechaPrevista = calcularFechaDevolucion(new Date(), 3);
+    const horas = daysSelectEl ? (parseInt(daysSelectEl.value) || 70) : 70;
+    const fechaPrevista = calcularFechaDevolucion(new Date(), horas);
     if (deadlineEl) {
-        deadlineEl.textContent = `Fecha límite de devolución: ${formatearFecha(fechaPrevista)} (3 días hábiles)`;
+        deadlineEl.textContent = `📅 Fecha límite de devolución (${horas}h hábiles): ${formatearFechaHora(fechaPrevista)}`;
     }
 
     if (!listEl) return;
@@ -1099,8 +1157,11 @@ async function confirmarPrestamoCarrito() {
         return;
     }
 
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 3);
+    const daysSelectEl = document.getElementById('cart-days-select');
+    const horas = daysSelectEl ? (parseInt(daysSelectEl.value) || 70) : 70;
+
+    const fechaHoy = new Date().toISOString();
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), horas);
     const prestamoId = Date.now().toString();
 
     // 1. Insertar Cabecera de Préstamo
@@ -1130,7 +1191,7 @@ async function confirmarPrestamoCarrito() {
         }
     }
 
-    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} ejemplar(es) a ${cartUser.nombre}.\nFecha de devolución: ${formatearFecha(fechaDevolucionPrevista)}`);
+    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} ejemplar(es) a ${cartUser.nombre}.\nFecha límite de devolución: ${formatearFechaHora(fechaDevolucionPrevista)}`);
 
     // Resetear formulario y redirigir a monitoreo
     cartUser = null;
@@ -1164,7 +1225,7 @@ async function cargarMonitoreoPrestamos() {
 
 async function renderTablaMonitoreo(lista) {
     const tbody = document.getElementById('monitoreo-table-body');
-    const hoy = new Date().toISOString().split('T')[0];
+    const ahoraIso = new Date().toISOString();
 
     if (lista.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No hay préstamos con los filtros seleccionados.</td></tr>';
@@ -1188,7 +1249,7 @@ async function renderTablaMonitoreo(lista) {
         let estadoBadge = '';
         if (p.estado === 'devuelto') {
             estadoBadge = '<span class="badge badge-success">Devuelto</span>';
-        } else if (p.fecha_devolucion_prevista < hoy) {
+        } else if (p.fecha_devolucion_prevista < ahoraIso) {
             estadoBadge = '<span class="badge badge-danger">⚠️ Vencido</span>';
         } else {
             estadoBadge = '<span class="badge badge-warning">En Préstamo</span>';
@@ -1203,13 +1264,13 @@ async function renderTablaMonitoreo(lista) {
                     <small style="color:#666;">CI: ${p.persona_ci} (${p.persona_tipo})</small>
                 </td>
                 <td>${librosText || 'Sin detalles'}</td>
-                <td>${formatearFecha(p.fecha_prestamo)}</td>
-                <td><strong>${formatearFecha(p.fecha_devolucion_prevista)}</strong></td>
+                <td>${formatearFechaHora(p.fecha_prestamo)}</td>
+                <td><strong>${formatearFechaHora(p.fecha_devolucion_prevista)}</strong></td>
                 <td>${estadoBadge}</td>
                 <td>
                     ${esActivo ? `
                         <button onclick="devolverPrestamoCompleto('${p.id}')" class="btn-success" style="padding:4px 8px; font-size:12px; margin-bottom:3px;">↩️ Devolver</button>
-                        <button onclick="renovarPrestamo('${p.id}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar</button>
+                        <button onclick="renovarPrestamo('${p.id}', '${p.fecha_devolucion_prevista}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar (70h)</button>
                     ` : '<small style="color:#888;">Finalizado</small>'}
                 </td>
             </tr>
@@ -1222,13 +1283,13 @@ async function renderTablaMonitoreo(lista) {
 function filtrarMonitoreo() {
     const q = document.getElementById('mon-search-input').value.toLowerCase().trim();
     const st = document.getElementById('mon-filter-status').value;
-    const hoy = new Date().toISOString().split('T')[0];
+    const ahoraIso = new Date().toISOString();
 
     const filtrados = prestamosCache.filter(p => {
         const matchQ = p.persona_nombre.toLowerCase().includes(q) || p.persona_ci.toLowerCase().includes(q);
         let matchSt = true;
-        if (st === 'activo') matchSt = p.estado === 'activo' && p.fecha_devolucion_prevista >= hoy;
-        if (st === 'vencido') matchSt = p.estado === 'activo' && p.fecha_devolucion_prevista < hoy;
+        if (st === 'activo') matchSt = p.estado === 'activo' && p.fecha_devolucion_prevista >= ahoraIso;
+        if (st === 'vencido') matchSt = p.estado === 'activo' && p.fecha_devolucion_prevista < ahoraIso;
         if (st === 'devuelto') matchSt = p.estado === 'devuelto';
         return matchQ && matchSt;
     });
@@ -1239,7 +1300,7 @@ function filtrarMonitoreo() {
 async function devolverPrestamoCompleto(prestamoId) {
     if (!confirm('¿Confirmar la devolución de todos los libros de este préstamo?')) return;
 
-    const fechaHoy = new Date().toISOString().split('T')[0];
+    const fechaHoy = new Date().toISOString();
 
     const detRes = await tursodb.query(`SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [prestamoId]);
     const detalles = detRes.rows || [];
@@ -1251,17 +1312,34 @@ async function devolverPrestamoCompleto(prestamoId) {
                 [fechaHoy, d.id]
             );
 
-            // Restaurar estado del ejemplar
-            if (d.ejemplar_id) {
-                await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
-            }
+            // Verificar si hay reservas pendientes para este libro (en orden de solicitud)
+            const resPend = await tursodb.query(
+                `SELECT * FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente' AND (ejemplar_id IS NULL OR ejemplar_id = '') ORDER BY created_at ASC LIMIT 1`,
+                [d.libro_id]
+            );
 
-            // Incrementar stock disponible en la obra
-            const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
-            if (libRes.rows && libRes.rows.length > 0) {
-                const lib = libRes.rows[0];
-                const nDisp = Math.min(lib.cantidad_total || 1, (lib.cantidad_disponible || 0) + 1);
-                await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
+            if (resPend.rows && resPend.rows.length > 0) {
+                const resAsignada = resPend.rows[0];
+                const exp12h = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+
+                await tursodb.query(
+                    `UPDATE biblioteca_reservas SET ejemplar_id = ?, fecha_expiracion = ? WHERE id = ?`,
+                    [d.ejemplar_id, exp12h, resAsignada.id]
+                );
+
+                if (d.ejemplar_id) {
+                    await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [d.ejemplar_id]);
+                }
+            } else {
+                if (d.ejemplar_id) {
+                    await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
+                }
+                const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
+                if (libRes.rows && libRes.rows.length > 0) {
+                    const lib = libRes.rows[0];
+                    const nDisp = Math.min(lib.cantidad_total || 1, (lib.cantidad_disponible || 0) + 1);
+                    await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
+                }
             }
         }
     }
@@ -1271,39 +1349,56 @@ async function devolverPrestamoCompleto(prestamoId) {
         [fechaHoy, prestamoId]
     );
 
-    alert('✅ Devolución registrada correctamente. Ejemplares y stock restaurados.');
+    alert('✅ Devolución registrada correctamente. Ejemplares restaurados o asignados a reservas pendientes (12h de reserva activa).');
     await cargarMonitoreoPrestamos();
 }
 
-async function renovarPrestamo(prestamoId) {
-    const detRes = await tursodb.query(`SELECT libro_id, libro_titulo FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [prestamoId]);
-    const detalles = detRes.rows || [];
+async function renovarPrestamo(prestamoId, fechaDevolucionActual = null) {
+    try {
+        const pIdStr = String(prestamoId);
+        const detRes = await tursodb.query(`SELECT libro_id, libro_titulo FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [pIdStr]);
+        const detalles = detRes.rows || [];
 
-    let libroConDemanda = null;
-    for (const d of detalles) {
-        const resCheck = await tursodb.query(
-            `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
-            [d.libro_id]
-        );
-        if (resCheck.rows && resCheck.rows[0] && resCheck.rows[0].cant > 0) {
-            libroConDemanda = d.libro_titulo;
-            break;
+        let libroConDemanda = null;
+        for (const d of detalles) {
+            const resCheck = await tursodb.query(
+                `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
+                [d.libro_id]
+            );
+            if (resCheck.rows && resCheck.rows.length > 0 && resCheck.rows[0].cant > 0) {
+                libroConDemanda = d.libro_titulo;
+                break;
+            }
         }
+
+        if (libroConDemanda) {
+            alert(`⚠️ NO SE PUEDE RENOVAR EL PRÉSTAMO:\nEl libro "${libroConDemanda}" tiene reservas pendientes por otros usuarios.\nPor políticas de biblioteca, el libro debe ser devuelto.`);
+            return;
+        }
+
+        // Obtener la fecha de devolución prevista actual del préstamo
+        let fechaBase = new Date();
+        if (fechaDevolucionActual && fechaDevolucionActual !== 'undefined' && fechaDevolucionActual !== 'null') {
+            fechaBase = parseFecha(fechaDevolucionActual);
+        } else {
+            const pRes = await tursodb.query(`SELECT fecha_devolucion_prevista FROM biblioteca_prestamos WHERE id = ?`, [pIdStr]);
+            if (pRes.rows && pRes.rows.length > 0 && pRes.rows[0].fecha_devolucion_prevista) {
+                fechaBase = parseFecha(pRes.rows[0].fecha_devolucion_prevista);
+            }
+        }
+
+        const nuevaFecha = calcularFechaDevolucion(fechaBase, 70);
+        await tursodb.query(
+            `UPDATE biblioteca_prestamos SET fecha_devolucion_prevista = ? WHERE id = ?`,
+            [nuevaFecha, pIdStr]
+        );
+
+        alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nSe añadieron 70 horas hábiles adicionales (3 días hábiles).\nLa nueva fecha límite de devolución es: ${formatearFechaHora(nuevaFecha)}`);
+        await cargarMonitoreoPrestamos();
+    } catch (err) {
+        console.error("Error al renovar préstamo:", err);
+        alert("❌ Error al procesar la renovación: " + err.message);
     }
-
-    if (libroConDemanda) {
-        alert(`⚠️ NO SE PUEDE RENOVAR EL PRÉSTAMO:\nEl libro "${libroConDemanda}" tiene reservas pendientes por otros usuarios.\nPor políticas de biblioteca, el libro debe ser devuelto.`);
-        return;
-    }
-
-    const nuevaFecha = calcularFechaDevolucion(new Date(), 3);
-    await tursodb.query(
-        `UPDATE biblioteca_prestamos SET fecha_devolucion_prevista = ? WHERE id = ?`,
-        [nuevaFecha, prestamoId]
-    );
-
-    alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nLa nueva fecha límite de devolución es: ${formatearFecha(nuevaFecha)}`);
-    await cargarMonitoreoPrestamos();
 }
 
 // ---------- 3. CATÁLOGO E INVENTARIO DE LIBROS ----------
@@ -1587,9 +1682,23 @@ async function cargarReservas() {
 
     tbody.innerHTML = reservasCache.map(r => {
         let stBadge = '';
+        let infoExpiracion = '';
         if (r.estado === 'pendiente') {
-            const es12h = !!r.fecha_expiracion;
-            stBadge = `<span class="badge badge-warning">Pendiente ${es12h ? '(12h)' : ''}</span>`;
+            if (r.fecha_expiracion) {
+                const msRestantes = new Date(r.fecha_expiracion).getTime() - Date.now();
+                if (msRestantes > 0) {
+                    const hrs = Math.floor(msRestantes / (1000 * 60 * 60));
+                    const mins = Math.floor((msRestantes % (1000 * 60 * 60)) / (1000 * 60));
+                    stBadge = `<span class="badge badge-warning">Activa (12h)</span>`;
+                    infoExpiracion = `<br><small style="color:#d97706; font-weight:bold;">⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m)</small>`;
+                } else {
+                    stBadge = `<span class="badge badge-danger">Expirada</span>`;
+                    infoExpiracion = `<br><small style="color:#dc2626;">Expiró: ${formatearFechaHora(r.fecha_expiracion)}</small>`;
+                }
+            } else {
+                stBadge = `<span class="badge badge-info">En Cola</span>`;
+                infoExpiracion = `<br><small style="color:#64748b;">(En espera de devolución)</small>`;
+            }
         } else if (r.estado === 'completada') {
             stBadge = '<span class="badge badge-success">Aprobada / Préstamo</span>';
         } else if (r.estado === 'expirada') {
@@ -1605,7 +1714,7 @@ async function cargarReservas() {
             <tr>
                 <td><strong>${tituloLibro}</strong></td>
                 <td>${r.persona_nombre}<br><small style="color:#666;">CI: ${r.persona_ci} (${r.persona_tipo})</small></td>
-                <td>${formatearFecha(r.fecha_reserva ? r.fecha_reserva.split('T')[0] : '')}</td>
+                <td>${formatearFechaHora(r.fecha_reserva)}${infoExpiracion}</td>
                 <td>${stBadge}</td>
                 <td>
                     ${r.estado === 'pendiente' ? `
@@ -1656,8 +1765,8 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
 
     if (!confirm(`¿Aprobar reserva y crear préstamo activo para ${r.persona_nombre} (CI: ${r.persona_ci}) del libro "${libro.titulo}"?`)) return;
 
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 3);
+    const fechaHoy = new Date().toISOString();
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 2);
     const prestamoId = Date.now().toString();
 
     // 1. Crear Préstamo
@@ -1683,7 +1792,7 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
     const disp = libro.cantidad_disponible !== null ? libro.cantidad_disponible : libro.cantidad_total;
     await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, disp - 1), r.libro_id]);
 
-    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nFecha devolución prevista: ${formatearFecha(fechaDevolucionPrevista)}`);
+    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nLímite devolución prevista: ${formatearFechaHora(fechaDevolucionPrevista)} (70h hábiles)`);
     await cargarReservas();
 }
 
@@ -1699,13 +1808,28 @@ async function solicitarReservaLibro(libroId, titulo) {
         tipo = 'estudiante';
     }
 
+    // Verificar disponibilidad de ejemplares
+    const ejRes = await tursodb.query(`SELECT id FROM biblioteca_ejemplares WHERE libro_id = ? AND estado = 'disponible' LIMIT 1`, [libroId]);
+    let ejemId = null;
+    let fechaExpiracion = null;
+    if (ejRes.rows && ejRes.rows.length > 0) {
+        ejemId = ejRes.rows[0].id;
+        fechaExpiracion = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [ejemId]);
+    }
+
+    const fechaReserva = new Date().toISOString();
     await tursodb.query(
-        `INSERT INTO biblioteca_reservas (id, libro_id, persona_ci, persona_nombre, persona_tipo, estado)
-         VALUES (?, ?, ?, ?, ?, 'pendiente')`,
-        [Date.now().toString(), libroId, ci, nombre, tipo]
+        `INSERT INTO biblioteca_reservas (id, libro_id, ejemplar_id, persona_ci, persona_nombre, persona_tipo, estado, fecha_reserva, fecha_expiracion)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
+        [Date.now().toString(), libroId, ejemId, ci, nombre, tipo, fechaReserva, fechaExpiracion]
     );
 
-    alert(`🔖 RESERVA REGISTRADA\nSe registró la reserva del libro para ${nombre}.\nEste libro no podrá ser renovado por quien lo tenga prestado en este momento.`);
+    if (ejemId) {
+        alert(`🔖 RESERVA REGISTRADA POR 12 HORAS\nSe reservó el ejemplar para ${nombre}.\nTiene 12 horas para ser recogido (expira: ${formatearFechaHora(fechaExpiracion)}).`);
+    } else {
+        alert(`🔖 RESERVA EN COLA REGISTRADA\nSe registró la reserva para ${nombre}.\nEl libro te será asignado con 12h de tolerancia al ser devuelto.`);
+    }
     switchBibTab('reservas');
 }
 

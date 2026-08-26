@@ -56,26 +56,81 @@ function escapeHtml(str) {
     return str.replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
 
+// Helper para parsear fechas evitando desfases de zona horaria en YYYY-MM-DD
+function parseFecha(fechaStr) {
+    if (!fechaStr) return new Date();
+    if (typeof fechaStr === 'object' && fechaStr instanceof Date) return fechaStr;
+    if (fechaStr.includes('T')) {
+        const d = new Date(fechaStr);
+        if (!isNaN(d.getTime())) return d;
+    }
+    const partes = fechaStr.split('T')[0].split('-');
+    if (partes.length === 3) {
+        return new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]), 12, 0, 0);
+    }
+    const d = new Date(fechaStr);
+    return isNaN(d.getTime()) ? new Date() : d;
+}
+
 // Helper formatearFecha
 function formatearFecha(fechaStr) {
     if (!fechaStr) return '-';
-    const partes = fechaStr.split('-');
-    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
-    return fechaStr;
+    try {
+        const d = parseFecha(fechaStr);
+        const dia = String(d.getDate()).padStart(2, '0');
+        const mes = String(d.getMonth() + 1).padStart(2, '0');
+        const anio = d.getFullYear();
+        return `${dia}/${mes}/${anio}`;
+    } catch (e) {
+        return fechaStr;
+    }
 }
 
-// Helper calcularFechaDevolucion (días hábiles)
-function calcularFechaDevolucion(fechaInicio, diasHabiles = 3) {
-    let fecha = new Date(fechaInicio);
-    let agregados = 0;
-    while (agregados < diasHabiles) {
+// Helper formatearFechaHora (DD/MM/YYYY HH:mm)
+function formatearFechaHora(fechaStr) {
+    if (!fechaStr) return '--';
+    try {
+        if (!fechaStr.includes('T')) {
+            return formatearFecha(fechaStr);
+        }
+        const d = new Date(fechaStr);
+        if (isNaN(d.getTime())) return formatearFecha(fechaStr);
+        const dia = String(d.getDate()).padStart(2, '0');
+        const mes = String(d.getMonth() + 1).padStart(2, '0');
+        const anio = d.getFullYear();
+        const hrs = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${dia}/${mes}/${anio} ${hrs}:${mins}`;
+    } catch (e) {
+        return fechaStr;
+    }
+}
+
+// Helper calcularFechaDevolucion: suma 70 horas hábiles (Lunes a Viernes)
+function calcularFechaDevolucion(fechaInicio = new Date(), horasHabiles = 70) {
+    let fecha = new Date(parseFecha(fechaInicio).getTime());
+
+    // Si el inicio cae en fin de semana, mover al Lunes siguiente a las 00:00
+    if (fecha.getDay() === 6) {       // Sábado → Lunes
+        fecha.setDate(fecha.getDate() + 2);
+        fecha.setHours(0, 0, 0, 0);
+    } else if (fecha.getDay() === 0) { // Domingo → Lunes
         fecha.setDate(fecha.getDate() + 1);
-        const diaSemana = fecha.getDay();
-        if (diaSemana !== 0 && diaSemana !== 6) { // Ignorar Domingo(0) y Sábado(6)
-            agregados++;
+        fecha.setHours(0, 0, 0, 0);
+    }
+
+    let horasContadas = 0;
+    while (horasContadas < horasHabiles) {
+        fecha.setTime(fecha.getTime() + 60 * 60 * 1000);
+        const dia = fecha.getDay();
+        if (dia >= 1 && dia <= 5) {
+            horasContadas++;
+        }
+        if (dia === 6) {
+            fecha.setTime(fecha.getTime() + 48 * 60 * 60 * 1000);
         }
     }
-    return fecha.toISOString().split('T')[0];
+    return fecha.toISOString();
 }
 
 // ---------- 1. AUTENTICACIÓN RÁPIDA POR CI (SIN CONTRASEÑA DE ADMIN) ----------
@@ -223,7 +278,7 @@ async function cargarMisPrestamos() {
         return;
     }
 
-    const hoy = new Date().toISOString().split('T')[0];
+    const ahoraIso = new Date().toISOString();
     let rowsHtml = '';
 
     for (const p of res.rows) {
@@ -242,23 +297,77 @@ async function cargarMisPrestamos() {
         let estadoBadge = '';
         if (p.estado === 'devuelto') {
             estadoBadge = '<span class="badge badge-success">Devuelto</span>';
-        } else if (p.fecha_devolucion_prevista < hoy) {
+        } else if (p.fecha_devolucion_prevista < ahoraIso) {
             estadoBadge = '<span class="badge badge-danger">⚠️ Vencido</span>';
         } else {
             estadoBadge = '<span class="badge badge-warning">En Préstamo</span>';
         }
 
+        const esActivo = p.estado === 'activo';
+
         rowsHtml += `
             <tr>
-                <td>${formatearFecha(p.fecha_prestamo)}</td>
+                <td>${formatearFechaHora(p.fecha_prestamo)}</td>
                 <td>${librosChipsHtml || 'Sin detalles'}</td>
-                <td><strong>${formatearFecha(p.fecha_devolucion_prevista)}</strong></td>
+                <td><strong>${formatearFechaHora(p.fecha_devolucion_prevista)}</strong></td>
                 <td>${estadoBadge}</td>
+                <td>
+                    ${esActivo ? `
+                        <button onclick="renovarPrestamoPortal('${p.id}', '${p.fecha_devolucion_prevista}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar (70h)</button>
+                    ` : '<small style="color:#888;">Finalizado</small>'}
+                </td>
             </tr>
         `;
     }
 
     tbody.innerHTML = rowsHtml;
+}
+
+async function renovarPrestamoPortal(prestamoId, fechaDevolucionActual = null) {
+    try {
+        const pIdStr = String(prestamoId);
+        const detRes = await tursodb.query(`SELECT libro_id, libro_titulo FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [pIdStr]);
+        const detalles = detRes.rows || [];
+
+        let libroConDemanda = null;
+        for (const d of detalles) {
+            const resCheck = await tursodb.query(
+                `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
+                [d.libro_id]
+            );
+            if (resCheck.rows && resCheck.rows.length > 0 && resCheck.rows[0].cant > 0) {
+                libroConDemanda = d.libro_titulo;
+                break;
+            }
+        }
+
+        if (libroConDemanda) {
+            alert(`⚠️ NO SE PUEDE RENOVAR EL PRÉSTAMO:\nEl libro "${libroConDemanda}" tiene reservas pendientes por otros usuarios.\nPor políticas de biblioteca, el libro debe ser devuelto.`);
+            return;
+        }
+
+        let fechaBase = new Date();
+        if (fechaDevolucionActual && fechaDevolucionActual !== 'undefined' && fechaDevolucionActual !== 'null') {
+            fechaBase = parseFecha(fechaDevolucionActual);
+        } else {
+            const pRes = await tursodb.query(`SELECT fecha_devolucion_prevista FROM biblioteca_prestamos WHERE id = ?`, [pIdStr]);
+            if (pRes.rows && pRes.rows.length > 0 && pRes.rows[0].fecha_devolucion_prevista) {
+                fechaBase = parseFecha(pRes.rows[0].fecha_devolucion_prevista);
+            }
+        }
+
+        const nuevaFecha = calcularFechaDevolucion(fechaBase, 70);
+        await tursodb.query(
+            `UPDATE biblioteca_prestamos SET fecha_devolucion_prevista = ? WHERE id = ?`,
+            [nuevaFecha, String(prestamoId)]
+        );
+
+        alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nSe añadieron 70 horas hábiles adicionales (3 días hábiles).\nLa nueva fecha límite de devolución es: ${formatearFechaHora(nuevaFecha)}`);
+        await cargarMisPrestamos();
+    } catch (e) {
+        console.error('Error al renovar préstamo:', e);
+        alert('❌ Error al renovar préstamo: ' + e.message);
+    }
 }
 
 async function verificarYLimpiarReservasExpiradas() {
@@ -417,9 +526,9 @@ function actualizarVistaCarritoUsuario() {
 
     if (countEl) countEl.textContent = userCartItems.length;
 
-    const fechaPrevista = calcularFechaDevolucion(new Date(), 3);
+    const fechaPrevista = calcularFechaDevolucion(new Date(), 2);
     if (deadlineEl) {
-        deadlineEl.textContent = `Devolución estimada: ${formatearFecha(fechaPrevista)} (3 días hábiles)`;
+        deadlineEl.textContent = `Devolución estimada: ${formatearFechaHora(fechaPrevista)} (3 días hábiles)`;
     }
 
     if (!listEl) return;
@@ -446,8 +555,8 @@ async function confirmarSolicitudPrestamo() {
         return;
     }
 
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 3);
+    const fechaHoy = new Date().toISOString();
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 2);
     const prestamoId = Date.now().toString();
 
     // 1. Insertar Cabecera de Préstamo
@@ -475,7 +584,7 @@ async function confirmarSolicitudPrestamo() {
         }
     }
 
-    alert(`✅ SOLICITUD REGISTRADA EXITOSAMENTE\nSe asignaron ${userCartItems.length} libro(s) a tu cuenta.\nFecha límite de devolución: ${formatearFecha(fechaDevolucionPrevista)}`);
+    alert(`✅ SOLICITUD REGISTRADA EXITOSAMENTE\nSe asignaron ${userCartItems.length} libro(s) a tu cuenta.\nLímite de devolución: ${formatearFechaHora(fechaDevolucionPrevista)} (70h hábiles)`);
 
     userCartItems = [];
     actualizarVistaCarritoUsuario();
@@ -486,6 +595,7 @@ async function confirmarSolicitudPrestamo() {
 
 async function cargarMisReservas() {
     if (!currentUser) return;
+    await verificarYLimpiarReservasExpiradas();
     const tbody = document.getElementById('user-reservations-tbody');
     if (!tbody) return;
 
@@ -507,13 +617,34 @@ async function cargarMisReservas() {
 
     tbody.innerHTML = res.rows.map(r => {
         const esPendiente = r.estado === 'pendiente';
-        const badgeClass = esPendiente ? 'badge-warning' : (r.estado === 'completada' ? 'badge-success' : 'badge-secondary');
+        let estadoBadgeHtml = '';
+
+        if (esPendiente) {
+            if (r.fecha_expiracion) {
+                const msRestantes = new Date(r.fecha_expiracion).getTime() - Date.now();
+                if (msRestantes > 0) {
+                    const hrs = Math.floor(msRestantes / (1000 * 60 * 60));
+                    const mins = Math.floor((msRestantes % (1000 * 60 * 60)) / (1000 * 60));
+                    estadoBadgeHtml = `<span class="badge badge-warning">RESERVADO (12h)</span><br><small style="color:#d97706; font-weight:bold;">⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m restantes)</small>`;
+                } else {
+                    estadoBadgeHtml = `<span class="badge badge-danger">EXPIRADA</span><br><small style="color:#dc2626;">Expiró el: ${formatearFechaHora(r.fecha_expiracion)}</small>`;
+                }
+            } else {
+                estadoBadgeHtml = `<span class="badge badge-info">EN COLA DE ESPERA</span><br><small style="color:#64748b;">(Se asignará al devolver el libro)</small>`;
+            }
+        } else if (r.estado === 'completada') {
+            estadoBadgeHtml = '<span class="badge badge-success">COMPLETADA / PRÉSTAMO</span>';
+        } else if (r.estado === 'expirada') {
+            estadoBadgeHtml = '<span class="badge badge-danger">EXPIRADA (12h)</span>';
+        } else {
+            estadoBadgeHtml = '<span class="badge badge-secondary">CANCELADA</span>';
+        }
 
         return `
             <tr>
-                <td>${formatearFecha(r.fecha_reserva?.split('T')[0] || r.fecha_reserva)}</td>
+                <td>${formatearFechaHora(r.fecha_reserva)}</td>
                 <td><strong>[${pad2(r.area_cod || '')}${pad2(r.libro_num || '')}]</strong> ${r.libro_titulo || 'Libro'}</td>
-                <td><span class="badge ${badgeClass}">${String(r.estado).toUpperCase()}</span></td>
+                <td>${estadoBadgeHtml}</td>
                 <td>
                     ${esPendiente ? `<button onclick="cancelarReservaUsuario('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">Cancelar</button>` : '-'}
                 </td>

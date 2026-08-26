@@ -194,10 +194,11 @@
                             <th>Libros Prestados (Pasa el cursor sobre el código)</th>
                             <th>Fecha Devolución</th>
                             <th>Estado</th>
+                            <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="user-loans-tbody">
-                        <tr><td colspan="4" style="text-align:center; color:#666;">Cargando mis préstamos...</td></tr>
+                        <tr><td colspan="5" style="text-align:center; color:#666;">Cargando mis préstamos...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -207,7 +208,7 @@
         <div id="portal-tab-reservas" class="portal-tab-content" style="display:none;">
             <div style="background:#f8f9fa; padding:18px; border-radius:10px; border:1px solid #cbd5e1; margin-bottom:25px;">
                 <h3 style="margin-bottom:12px; color:#0d6efd;">🔖 Solicitar Nueva Reserva de Libro</h3>
-                <p style="font-size:13px; color:#64748b; margin-bottom:12px;">Busca el libro o ejemplar que deseas apartar. Si el ejemplar está disponible, se reservará exclusivamente para ti durante 12 horas para que pases a recogerlo. Si está prestado, se reservará para asignártelo en cuanto sea devuelto.</p>
+                <p style="font-size:13px; color:#64748b; margin-bottom:12px;">Busca el libro o ejemplar que deseas apartar. Si el ejemplar está disponible, se reservará exclusivamente para ti durante 12 horas exactas contadas desde el momento de la solicitud. Si está prestado, se registrará en cola y se te asignará con 12 horas exactas a partir de su devolución.</p>
                 
                 <div style="display:flex; gap:10px; margin-bottom:12px;">
                     <input type="text" id="user-search-book-input" placeholder="Buscar por código (ej: 011201), título o autor..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:6px; font-size:14px;" onkeydown="if(event.key==='Enter') buscarLibrosPortal()">
@@ -275,6 +276,6 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/portal.js?v=2026082511"></script>
+<script src="js/portal.js?v=2026082625"></script>
 </body>
 </html>

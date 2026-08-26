@@ -230,10 +230,18 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
 
                         <div>
                             <!-- Cálculo de Días Hábiles -->
-                            <div style="background:#e8f4fd; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #b6d4fe;">
-                                <div style="font-size:13px; color:#0c5460; margin-bottom:5px;"><strong>⏱️ Duración del préstamo:</strong> 3 días hábiles (Lunes a Viernes)</div>
-                                <div style="font-size:14px; font-weight:bold; color:#0056b3;" id="cart-deadline-info">
-                                    Fecha límite de devolución: --
+                            <div style="background:#e8f4fd; padding:14px; border-radius:8px; margin-bottom:15px; border:1px solid #b6d4fe;">
+                                <div style="font-size:13px; color:#0c5460; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:5px;">
+                                    <strong>⏱️ Duración del préstamo:</strong>
+                                    <select id="cart-days-select" onchange="actualizarVistaCarrito()" style="padding:5px 10px; border-radius:6px; border:1px solid #90caf9; font-weight:bold; font-size:13px; background:#ffffff; color:#0c5460; cursor:pointer;">
+                                        <option value="70" selected>3 días hábiles – 70 horas (estándar)</option>
+                                        <option value="24">1 día hábil – 24 horas (express)</option>
+                                        <option value="120">5 días hábiles – 120 horas (1 semana)</option>
+                                        <option value="240">10 días hábiles – 240 horas (2 semanas)</option>
+                                    </select>
+                                </div>
+                                <div style="font-size:15px; font-weight:bold; color:#0056b3;" id="cart-deadline-info">
+                                    📅 Fecha límite de devolución: Calculando...
                                 </div>
                             </div>
                             
@@ -595,6 +603,6 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/app.js?v=2026082508"></script>
+<script src="js/app.js?v=2026082625"></script>
 </body>
 </html>

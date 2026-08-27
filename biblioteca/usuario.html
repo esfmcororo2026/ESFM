@@ -273,10 +273,9 @@
                     <div style="display:flex; align-items:center; gap:8px;">
                         <label for="user-res-history-filter" style="font-size:12px; color:#64748b; font-weight:bold;">Filtrar por estado:</label>
                         <select id="user-res-history-filter" style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; background:#fff; font-weight:bold;" onchange="filtrarHistorialReservasPortal()">
-                            <option value="todos">Todos los Estados</option>
-                            <option value="pendiente">Pendientes / Activas</option>
+                            <option value="todos">Todas las Históricas (Completadas, Expiradas, Canceladas)</option>
                             <option value="completada">Completadas (Préstamo realizado)</option>
-                            <option value="expirada">Expiradas</option>
+                            <option value="expirada">Expiradas (Plazo de 12h superado)</option>
                             <option value="cancelada">Canceladas</option>
                         </select>
                     </div>
@@ -343,6 +342,6 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/portal.js?v=20260827_08"></script>
+<script src="js/portal.js?v=20260827_09"></script>
 </body>
 </html>

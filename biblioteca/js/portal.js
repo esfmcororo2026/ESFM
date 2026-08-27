@@ -680,46 +680,34 @@ function renderHistorialReservasPortal() {
 
     const filterVal = document.getElementById('user-res-history-filter')?.value || 'todos';
 
-    let list = allUserReservations;
+    // El historial SOLO contiene reservas finalizadas/históricas (NO pendientes)
+    let historyList = allUserReservations.filter(r => r.estado !== 'pendiente');
+
     if (filterVal !== 'todos') {
-        list = list.filter(r => r.estado === filterVal);
+        historyList = historyList.filter(r => r.estado === filterVal);
     }
 
-    if (list.length === 0) {
-        tbodyHistory.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888; padding:25px; font-style:italic;">No hay registros de reservas en este historial.</td></tr>';
+    if (historyList.length === 0) {
+        tbodyHistory.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888; padding:25px; font-style:italic;">No hay reservas finalizadas en este historial.</td></tr>';
         return;
     }
 
-    tbodyHistory.innerHTML = list.map(r => {
-        const esPendiente = r.estado === 'pendiente';
+    tbodyHistory.innerHTML = historyList.map(r => {
         let estadoBadgeHtml = '';
         let detalleText = '-';
 
-        if (esPendiente) {
-            if (r.fecha_expiracion) {
-                const msRestantes = new Date(r.fecha_expiracion).getTime() - Date.now();
-                if (msRestantes > 0) {
-                    const hrs = Math.floor(msRestantes / (1000 * 60 * 60));
-                    const mins = Math.floor((msRestantes % (1000 * 60 * 60)) / (1000 * 60));
-                    estadoBadgeHtml = `<span class="badge badge-warning">RESERVADO (12h)</span>`;
-                    detalleText = `⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m restantes)`;
-                } else {
-                    estadoBadgeHtml = `<span class="badge badge-danger">EXPIRADA</span>`;
-                    detalleText = `Expiró el: ${formatearFechaHora(r.fecha_expiracion)}`;
-                }
-            } else {
-                estadoBadgeHtml = `<span class="badge badge-info">EN COLA</span>`;
-                detalleText = `En cola de espera de devolución`;
-            }
-        } else if (r.estado === 'completada') {
+        if (r.estado === 'completada') {
             estadoBadgeHtml = '<span class="badge badge-success">COMPLETADA</span>';
             detalleText = 'Préstamo realizado exitosamente';
         } else if (r.estado === 'expirada') {
             estadoBadgeHtml = '<span class="badge badge-danger">EXPIRADA</span>';
             detalleText = r.fecha_expiracion ? `Expiró el ${formatearFechaHora(r.fecha_expiracion)}` : 'Expiró el plazo de 12h';
-        } else {
+        } else if (r.estado === 'cancelada') {
             estadoBadgeHtml = '<span class="badge badge-secondary">CANCELADA</span>';
             detalleText = 'Solicitud cancelada por el usuario o administrador';
+        } else {
+            estadoBadgeHtml = `<span class="badge badge-secondary">${safeEscapePortal(r.estado.toUpperCase())}</span>`;
+            detalleText = '-';
         }
 
         const tituloMostrar = r.libro_titulo || r.libro_titulo_join || r.proy_titulo_join || 'Sin título';

@@ -334,6 +334,10 @@ async function verificarYLimpiarReservasExpiradas() {
                     `UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
                     [r.ejemplar_id]
                 );
+                await tursodb.query(
+                    `UPDATE biblioteca_proyectos_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
+                    [r.ejemplar_id]
+                );
             }
         }
     } catch (e) {
@@ -490,11 +494,12 @@ async function solicitarReservaConExpiracion(libroId, ejemId, titulo, codigoEjem
     );
 
     if (esDisponible) {
-        // Cambiar estado del ejemplar a 'reservado'
+        // Cambiar estado del ejemplar a 'reservado' en libros y proyectos
         await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [ejemId]);
+        await tursodb.query(`UPDATE biblioteca_proyectos_ejemplares SET estado = 'reservado' WHERE id = ?`, [ejemId]);
         alert(`✅ RESERVA REGISTRADA POR 12 HORAS\nHas apartado el ejemplar [${codigoEjemplar}]. Tienes 12 horas para recogerlo en la biblioteca.`);
     } else {
-        alert(`✅ RESERVA REGISTRADA\nHas reservado el libro [${codigoEjemplar}]. El usuario actual no podrá renovar el préstamo y el libro te será reservado al ser devuelto.`);
+        alert(`✅ RESERVA REGISTRADA\nHas reservado el ejemplar [${codigoEjemplar}]. El ejemplar te será asignado al ser devuelto.`);
     }
 
     switchPortalTab('reservas');
@@ -587,35 +592,108 @@ async function confirmarSolicitudPrestamo() {
 
 // ---------- 5. GESTIÓN Y SOLICITUD DE RESERVAS ----------
 
+let allUserReservations = [];
+
 async function cargarMisReservas() {
     if (!currentUser) return;
     await verificarYLimpiarReservasExpiradas();
-    const tbody = document.getElementById('user-reservations-tbody');
-    if (!tbody) return;
+    
+    const tbodyActive = document.getElementById('user-reservations-active-tbody');
+    const tbodyHistory = document.getElementById('user-reservations-history-tbody');
+    const activeBadge = document.getElementById('active-res-count');
 
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666;">Cargando mis reservas...</td></tr>';
+    if (tbodyActive) tbodyActive.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666;">Cargando...</td></tr>';
+    if (tbodyHistory) tbodyHistory.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#666;">Cargando...</td></tr>';
 
     const res = await tursodb.query(
         `SELECT r.*, 
                 l.titulo as libro_titulo_join, 
                 l.area_cod, l.libro_num,
-                e.codigo_ejemplar as ejem_codigo
+                e.codigo_ejemplar as ejem_codigo,
+                p.titulo as proy_titulo_join,
+                pe.codigo_ejemplar as proy_ejem_codigo
          FROM biblioteca_reservas r
          LEFT JOIN biblioteca_libros l ON r.libro_id = l.id
          LEFT JOIN biblioteca_ejemplares e ON r.ejemplar_id = e.id
+         LEFT JOIN biblioteca_proyectos p ON r.libro_id = p.id
+         LEFT JOIN biblioteca_proyectos_ejemplares pe ON r.ejemplar_id = pe.id
          WHERE r.persona_ci = ?
          ORDER BY r.created_at DESC`,
         [currentUser.ci]
     );
 
-    if (!res.rows || res.rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#888; padding:30px;">No tienes reservas registradas.</td></tr>';
+    allUserReservations = res.rows || [];
+
+    // Reservas activas/pendientes
+    const activeRows = allUserReservations.filter(r => r.estado === 'pendiente');
+
+    if (activeBadge) {
+        activeBadge.textContent = `${activeRows.length} activa${activeRows.length === 1 ? '' : 's'}`;
+    }
+
+    if (tbodyActive) {
+        if (activeRows.length === 0) {
+            tbodyActive.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#888; padding:20px; font-style:italic;">No tienes reservas activas.</td></tr>';
+        } else {
+            tbodyActive.innerHTML = activeRows.map(r => {
+                let estadoBadgeHtml = '';
+                if (r.fecha_expiracion) {
+                    const msRestantes = new Date(r.fecha_expiracion).getTime() - Date.now();
+                    if (msRestantes > 0) {
+                        const hrs = Math.floor(msRestantes / (1000 * 60 * 60));
+                        const mins = Math.floor((msRestantes % (1000 * 60 * 60)) / (1000 * 60));
+                        estadoBadgeHtml = `<span class="badge badge-warning">RESERVADO (12h)</span><br><small style="color:#d97706; font-weight:bold;">⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m)</small>`;
+                    } else {
+                        estadoBadgeHtml = `<span class="badge badge-danger">EXPIRADA</span><br><small style="color:#dc2626;">Expiró el: ${formatearFechaHora(r.fecha_expiracion)}</small>`;
+                    }
+                } else {
+                    estadoBadgeHtml = `<span class="badge badge-info">EN COLA DE ESPERA</span><br><small style="color:#64748b;">(Se asignará al devolver)</small>`;
+                }
+
+                const tituloMostrar = r.libro_titulo || r.libro_titulo_join || r.proy_titulo_join || 'Sin título';
+                const codigoMostrar = r.libro_codigo || r.ejem_codigo || r.proy_ejem_codigo || (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '—');
+
+                return `
+                    <tr>
+                        <td style="font-size:12px;">${formatearFechaHora(r.fecha_reserva)}</td>
+                        <td><strong style="color:#0d6efd;">[${codigoMostrar}]</strong><br><span style="font-size:12px;">${safeEscapePortal(tituloMostrar)}</span></td>
+                        <td>${estadoBadgeHtml}</td>
+                        <td>
+                            <button onclick="cancelarReservaUsuario('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:11px;">Cancelar</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    renderHistorialReservasPortal();
+}
+
+function filtrarHistorialReservasPortal() {
+    renderHistorialReservasPortal();
+}
+
+function renderHistorialReservasPortal() {
+    const tbodyHistory = document.getElementById('user-reservations-history-tbody');
+    if (!tbodyHistory) return;
+
+    const filterVal = document.getElementById('user-res-history-filter')?.value || 'todos';
+
+    let list = allUserReservations;
+    if (filterVal !== 'todos') {
+        list = list.filter(r => r.estado === filterVal);
+    }
+
+    if (list.length === 0) {
+        tbodyHistory.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888; padding:25px; font-style:italic;">No hay registros de reservas en este historial.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = res.rows.map(r => {
+    tbodyHistory.innerHTML = list.map(r => {
         const esPendiente = r.estado === 'pendiente';
         let estadoBadgeHtml = '';
+        let detalleText = '-';
 
         if (esPendiente) {
             if (r.fecha_expiracion) {
@@ -623,35 +701,42 @@ async function cargarMisReservas() {
                 if (msRestantes > 0) {
                     const hrs = Math.floor(msRestantes / (1000 * 60 * 60));
                     const mins = Math.floor((msRestantes % (1000 * 60 * 60)) / (1000 * 60));
-                    estadoBadgeHtml = `<span class="badge badge-warning">RESERVADO (12h)</span><br><small style="color:#d97706; font-weight:bold;">⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m restantes)</small>`;
+                    estadoBadgeHtml = `<span class="badge badge-warning">RESERVADO (12h)</span>`;
+                    detalleText = `⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m restantes)`;
                 } else {
-                    estadoBadgeHtml = `<span class="badge badge-danger">EXPIRADA</span><br><small style="color:#dc2626;">Expiró el: ${formatearFechaHora(r.fecha_expiracion)}</small>`;
+                    estadoBadgeHtml = `<span class="badge badge-danger">EXPIRADA</span>`;
+                    detalleText = `Expiró el: ${formatearFechaHora(r.fecha_expiracion)}`;
                 }
             } else {
-                estadoBadgeHtml = `<span class="badge badge-info">EN COLA DE ESPERA</span><br><small style="color:#64748b;">(Se asignará al devolver el libro)</small>`;
+                estadoBadgeHtml = `<span class="badge badge-info">EN COLA</span>`;
+                detalleText = `En cola de espera de devolución`;
             }
         } else if (r.estado === 'completada') {
-            estadoBadgeHtml = '<span class="badge badge-success">COMPLETADA / PRÉSTAMO</span>';
+            estadoBadgeHtml = '<span class="badge badge-success">COMPLETADA</span>';
+            detalleText = 'Préstamo realizado exitosamente';
         } else if (r.estado === 'expirada') {
-            estadoBadgeHtml = '<span class="badge badge-danger">EXPIRADA (12h)</span>';
+            estadoBadgeHtml = '<span class="badge badge-danger">EXPIRADA</span>';
+            detalleText = r.fecha_expiracion ? `Expiró el ${formatearFechaHora(r.fecha_expiracion)}` : 'Expiró el plazo de 12h';
         } else {
             estadoBadgeHtml = '<span class="badge badge-secondary">CANCELADA</span>';
+            detalleText = 'Solicitud cancelada por el usuario o administrador';
         }
 
-        // Prioridad: columnas guardadas en la reserva > JOIN con libros > JOIN con ejemplares > fallback
-        const tituloMostrar = r.libro_titulo || r.libro_titulo_join || 'Sin título';
-        const codigoMostrar = r.libro_codigo || r.ejem_codigo
-            ? (r.libro_codigo || r.ejem_codigo)
-            : (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '—');
+        const tituloMostrar = r.libro_titulo || r.libro_titulo_join || r.proy_titulo_join || 'Sin título';
+        const codigoMostrar = r.libro_codigo || r.ejem_codigo || r.proy_ejem_codigo || (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '—');
+        
+        const esProyecto = codigoMostrar.length === 8 || Boolean(r.proy_titulo_join);
+        const tipoBadge = esProyecto
+            ? `<span class="badge badge-info" style="font-size:10px;">📂 Proyecto</span>`
+            : `<span class="badge badge-secondary" style="font-size:10px;">📖 Libro</span>`;
 
         return `
             <tr>
-                <td>${formatearFechaHora(r.fecha_reserva)}</td>
-                <td><strong style="color:#0d6efd;">[${codigoMostrar}]</strong><br><span style="font-size:13px;">${tituloMostrar}</span></td>
+                <td style="font-size:12px;">${formatearFechaHora(r.fecha_reserva)}</td>
+                <td><strong style="color:#0d6efd;">[${codigoMostrar}]</strong><br><span style="font-size:13px;">${safeEscapePortal(tituloMostrar)}</span></td>
+                <td>${tipoBadge}</td>
                 <td>${estadoBadgeHtml}</td>
-                <td>
-                    ${esPendiente ? `<button onclick="cancelarReservaUsuario('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">Cancelar</button>` : '-'}
-                </td>
+                <td style="font-size:12px; color:#64748b;">${detalleText}</td>
             </tr>
         `;
     }).join('');
@@ -659,7 +744,13 @@ async function cargarMisReservas() {
 
 async function cancelarReservaUsuario(reservaId) {
     if (!confirm('¿Cancelar esta solicitud de reserva?')) return;
+    const res = await tursodb.query(`SELECT ejemplar_id FROM biblioteca_reservas WHERE id = ?`, [reservaId]);
     await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'cancelada' WHERE id = ?`, [reservaId]);
+    if (res.rows && res.rows[0] && res.rows[0].ejemplar_id) {
+        const ejemId = res.rows[0].ejemplar_id;
+        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`, [ejemId]);
+        await tursodb.query(`UPDATE biblioteca_proyectos_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`, [ejemId]);
+    }
     await cargarMisReservas();
 }
 

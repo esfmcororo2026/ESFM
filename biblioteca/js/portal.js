@@ -487,30 +487,50 @@ async function buscarLibrosPortal() {
     const resultsEl = document.getElementById('user-search-book-results');
     if (!resultsEl) return;
 
-    resultsEl.innerHTML = '<p style="color:#666; font-size:13px; text-align:center; padding:15px;">Buscando libros...</p>';
+    resultsEl.innerHTML = '<p style="color:#666; font-size:13px; text-align:center; padding:15px;">Buscando libros y proyectos...</p>';
 
     const cleanQ = rawQ.replace(/['"]/g, '');
 
+    // 1. Libros
     let querySql = `
         SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado,
-               l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
+               l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num, 'libro' as tipo_item 
         FROM biblioteca_ejemplares e 
         JOIN biblioteca_libros l ON e.libro_id = l.id 
     `;
 
     let params = [];
     if (cleanQ) {
-        querySql += ` WHERE e.codigo_ejemplar LIKE ? OR l.titulo LIKE ? OR l.autor LIKE ? OR l.area_cod LIKE ? LIMIT 30`;
+        querySql += ` WHERE e.codigo_ejemplar LIKE ? OR l.titulo LIKE ? OR l.autor LIKE ? OR l.area_cod LIKE ? LIMIT 20`;
         params = [`%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`];
     } else {
-        querySql += ` ORDER BY CAST(l.area_cod AS INTEGER) ASC, CAST(l.libro_num AS INTEGER) ASC LIMIT 25`;
+        querySql += ` ORDER BY CAST(l.area_cod AS INTEGER) ASC, CAST(l.libro_num AS INTEGER) ASC LIMIT 20`;
     }
 
     const ejemRes = await tursodb.query(querySql, params);
-    const rows = ejemRes.rows || [];
+    let rowsLibros = ejemRes.rows || [];
+
+    // 2. Proyectos
+    let proyQuerySql = `
+        SELECT pe.id as ejem_id, pe.codigo_ejemplar, pe.ejemplar_num, pe.estado as ejem_estado,
+               p.id as libro_id, p.titulo, p.autores as autor, 'PROYECTO DE GRADO' as editorial, p.cod_esp as area_cod, p.proyecto_num as libro_num, 'proyecto' as tipo_item 
+        FROM biblioteca_proyectos_ejemplares pe 
+        JOIN biblioteca_proyectos p ON pe.proyecto_id = p.id 
+    `;
+    let proyParams = [];
+    if (cleanQ) {
+        proyQuerySql += ` WHERE pe.codigo_ejemplar LIKE ? OR p.titulo LIKE ? OR p.autores LIKE ? OR p.especialidad LIKE ? LIMIT 20`;
+        proyParams = [`%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`];
+    } else {
+        proyQuerySql += ` ORDER BY p.gestion DESC, CAST(p.cod_esp AS INTEGER) ASC LIMIT 20`;
+    }
+
+    const proyRes = await tursodb.query(proyQuerySql, proyParams);
+    const proyRows = proyRes.rows || [];
+    let rows = [...rowsLibros, ...proyRows];
 
     if (rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic; text-align:center; padding:15px;">No se encontraron libros con esa búsqueda.</p>';
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic; text-align:center; padding:15px;">No se encontraron libros ni proyectos con esa búsqueda.</p>';
         return;
     }
 
@@ -518,6 +538,9 @@ async function buscarLibrosPortal() {
         const estaDisponible = item.ejem_estado === 'disponible';
         const estaPrestado = item.ejem_estado === 'prestado';
         const estaReservado = item.ejem_estado === 'reservado';
+        const badgeTipo = item.tipo_item === 'proyecto' 
+            ? `<span class="badge badge-info" style="font-size:10px; margin-left:4px;">📂 PROYECTO</span>` 
+            : `<span class="badge badge-secondary" style="font-size:10px; margin-left:4px;">📖 LIBRO</span>`;
 
         let accionesHtml = '';
 
@@ -543,8 +566,8 @@ async function buscarLibrosPortal() {
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee; background:#fff;">
                 <div style="font-size:13px; flex:1; padding-right:12px;">
-                    <strong style="color:#0d6efd;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong><br>
-                    <small style="color:#666;">Autor: ${item.autor || 'N/A'} | Ejemplar #${item.ejemplar_num}</small>
+                    <strong style="color:#0d6efd;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong> ${badgeTipo}<br>
+                    <small style="color:#666;">Autor(es): ${item.autor || 'N/A'} | Ejemplar #${item.ejemplar_num}</small>
                 </div>
                 <div>
                     ${accionesHtml}

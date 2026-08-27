@@ -183,6 +183,7 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                 <button class="bib-tab-btn active" id="btn-tab-carrito" onclick="switchBibTab('carrito')">🛒 Carrito de Préstamos</button>
                 <button class="bib-tab-btn" id="btn-tab-monitoreo" onclick="switchBibTab('monitoreo')">⏱️ Monitoreo en Tiempo Real</button>
                 <button class="bib-tab-btn" id="btn-tab-catalogo" onclick="switchBibTab('catalogo')">📚 Inventario de Libros</button>
+                <button class="bib-tab-btn" id="btn-tab-proyectos" onclick="switchBibTab('proyectos')">📂 Catálogo de Proyectos</button>
                 <button class="bib-tab-btn" id="btn-tab-reservas" onclick="switchBibTab('reservas')">🔖 Cola de Reservas</button>
                 <button class="bib-tab-btn" id="btn-tab-excel" onclick="switchBibTab('excel')">📊 Carga Masiva (Excel)</button>
             </div>
@@ -383,7 +384,89 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                 </div>
             </div>
 
-            <!-- PESTAÑA 4: COLA DE RESERVAS -->
+            <!-- PESTAÑA: CATÁLOGO DE PROYECTOS DE GRADO / TESIS -->
+            <div id="tab-proyectos" class="bib-tab-content card hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+                    <h3>📂 Catálogo de Proyectos de Grado / Tesis</h3>
+                    <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
+                </div>
+
+                <!-- Buscador y Filtros -->
+                <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                    <input type="text" id="proy-search-input" oninput="filtrarCatalogoProyectos()" placeholder="Buscar por código (ej: 01201401), título, autores..." style="flex:1; min-width:250px; padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                    <select id="proy-filter-gestion" onchange="filtrarCatalogoProyectos()" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                        <option value="">Todas las Gestiones</option>
+                        <option value="2014">Gestión 2014</option>
+                        <option value="2017">Gestión 2017</option>
+                        <option value="2019">Gestión 2019</option>
+                        <option value="2022">Gestión 2022</option>
+                        <option value="2023">Gestión 2023</option>
+                        <option value="2025">Gestión 2025</option>
+                    </select>
+                </div>
+
+                <!-- Formulario de Registro / Edición de Proyecto -->
+                <div id="form-proyecto-container" style="display:none; background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #ddd; margin-bottom:20px;">
+                    <h4 id="form-proyecto-title" style="margin-bottom:15px; color:#007bff;">Registrar Nuevo Proyecto</h4>
+                    <input type="hidden" id="proy-edit-id">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:15px;">
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">Cod_Esp: *</label>
+                            <input type="text" id="proy-input-esp" oninput="actualizarPrevisualizacionCodigoProyecto()" placeholder="Ej: 01" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">Gestión (Año): *</label>
+                            <input type="text" id="proy-input-gestion" oninput="actualizarPrevisualizacionCodigoProyecto()" placeholder="Ej: 2014" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">Nº Proyecto: *</label>
+                            <input type="text" id="proy-input-num" oninput="actualizarPrevisualizacionCodigoProyecto()" placeholder="Ej: 01" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">TÍTULO COMPLETO: *</label>
+                            <input type="text" id="proy-input-titulo" placeholder="Título del proyecto" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">ESPECIALIDAD:</label>
+                            <input type="text" id="proy-input-especialidad" placeholder="Ej: Primaria / Ciencias Sociales" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; font-weight:bold;">AUTORES / INTEGRANTES:</label>
+                            <input type="text" id="proy-input-autores" placeholder="Nombre(s) de los autores" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:15px; font-size:13px; font-weight:bold; color:#0056b3;" id="proy-code-preview">
+                        🏷️ Código que se generará: --
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="guardarProyecto()" class="btn-primary">💾 Guardar Proyecto</button>
+                        <button onclick="cerrarFormProyecto()" class="btn-secondary">Cancelar</button>
+                    </div>
+                </div>
+
+                <!-- Tabla de Catálogo de Proyectos -->
+                <div class="table-responsive">
+                    <table class="bib-table">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Gestión</th>
+                                <th>Especialidad</th>
+                                <th>Título del Proyecto</th>
+                                <th>Autores / Equipo Comunitario</th>
+                                <th>Disp.</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="proyectos-table-body">
+                            <tr><td colspan="8" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- PESTAÑA 5: COLA DE RESERVAS -->
             <div id="tab-reservas" class="bib-tab-content card hidden">
                 <h3 style="margin-bottom:15px;">🔖 Cola de Reservas Pendientes</h3>
                 <p style="color:#666; font-size:14px; margin-bottom:15px;">
@@ -409,59 +492,122 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
 
             <!-- PESTAÑA 5: CARGA MASIVA DESDE EXCEL -->
             <div id="tab-excel" class="bib-tab-content card hidden">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
-                    <h3>📊 Carga Masiva de Libros desde Excel</h3>
-                    <button onclick="descargarPlantillaExcel()" class="btn-success">📥 Descargar Plantilla Excel Ejemplo</button>
+                <!-- Selector de Modo de Importación -->
+                <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid #e2e8f0; padding-bottom:15px; flex-wrap:wrap;">
+                    <button class="btn-primary" id="btn-mode-libros" onclick="switchImportMode('libros')" style="padding:10px 16px; font-weight:bold;">📚 Carga Masiva de Libros</button>
+                    <button class="btn-secondary" id="btn-mode-proyectos" onclick="switchImportMode('proyectos')" style="padding:10px 16px; font-weight:bold;">📂 Carga Masiva de Proyectos (PROYECTOS.xlsx)</button>
                 </div>
 
-                <p style="color:#666; font-size:14px; margin-bottom:15px;">
-                    Selecciona un archivo Excel (`.xlsx`, `.xls`) o CSV con la estructura oficial: 
-                    <strong>COD</strong>, <strong>Nº</strong>, <strong>AUTOR</strong>, <strong>TÍTULO</strong>, <strong>EDITORIAL</strong>, <strong>AÑO</strong>, <strong>Nº EJEM.</strong> y <strong>ESTADO</strong>.
-                </p>
-
-                <div style="background:#f8f9fa; padding:20px; border-radius:8px; border:2px dashed #007bff; text-align:center; margin-bottom:20px;">
-                    <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" onchange="procesarArchivoExcel(event)" style="display:none;">
-                    <label for="excel-file-input" class="btn-primary" style="padding:12px 24px; cursor:pointer; display:inline-block; font-size:15px;">
-                        📂 Seleccionar Archivo Excel
-                    </label>
-                    <div id="excel-file-name" style="margin-top:10px; font-weight:bold; color:#333;"></div>
-                </div>
-
-                <!-- Resumen de Carga -->
-                <div id="excel-summary-container" style="display:none; margin-bottom:20px; background:#e8f4fd; padding:15px; border-radius:8px; border:1px solid #b6d4fe;">
-                    <h4 style="color:#0056b3; margin-bottom:8px;">📋 Resumen del Archivo Procesado:</h4>
-                    <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:14px;">
-                        <div>📚 <strong>Libros a Registrar:</strong> <span id="excel-count-books">0</span></div>
-                        <div>🏷️ <strong>Total Ejemplares a Generar:</strong> <span id="excel-count-copies">0</span></div>
+                <!-- SECCIÓN IMPORTAR LIBROS -->
+                <div id="import-section-libros">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+                        <h3>📚 Carga Masiva de Libros desde Excel</h3>
+                        <button onclick="descargarPlantillaExcel()" class="btn-success">📥 Descargar Plantilla Excel Ejemplo</button>
                     </div>
+
+                    <p style="color:#666; font-size:14px; margin-bottom:15px;">
+                        Selecciona un archivo Excel (`.xlsx`, `.xls`) o CSV con la estructura oficial: 
+                        <strong>COD</strong>, <strong>Nº</strong>, <strong>AUTOR</strong>, <strong>TÍTULO</strong>, <strong>EDITORIAL</strong>, <strong>AÑO</strong>, <strong>Nº EJEM.</strong> y <strong>ESTADO</strong>.
+                    </p>
+
+                    <div style="background:#f8f9fa; padding:20px; border-radius:8px; border:2px dashed #007bff; text-align:center; margin-bottom:20px;">
+                        <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" onchange="procesarArchivoExcel(event)" style="display:none;">
+                        <label for="excel-file-input" class="btn-primary" style="padding:12px 24px; cursor:pointer; display:inline-block; font-size:15px;">
+                            📂 Seleccionar Archivo Excel de Libros
+                        </label>
+                        <div id="excel-file-name" style="margin-top:10px; font-weight:bold; color:#333;"></div>
+                    </div>
+
+                    <!-- Resumen de Carga Libros -->
+                    <div id="excel-summary-container" style="display:none; margin-bottom:20px; background:#e8f4fd; padding:15px; border-radius:8px; border:1px solid #b6d4fe;">
+                        <h4 style="color:#0056b3; margin-bottom:8px;">📋 Resumen del Archivo Procesado:</h4>
+                        <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:14px;">
+                            <div>📚 <strong>Libros a Registrar:</strong> <span id="excel-count-books">0</span></div>
+                            <div>🏷️ <strong>Total Ejemplares a Generar:</strong> <span id="excel-count-copies">0</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Previsualización Libros -->
+                    <div class="table-responsive" style="max-height:350px; overflow-y:auto; margin-bottom:20px;">
+                        <table class="bib-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>COD</th>
+                                    <th>Nº</th>
+                                    <th>TÍTULO</th>
+                                    <th>AUTOR</th>
+                                    <th>EDITORIAL</th>
+                                    <th>AÑO</th>
+                                    <th>Nº EJEM.</th>
+                                    <th>ESTADO</th>
+                                    <th>CÓDIGOS A GENERAR</th>
+                                </tr>
+                            </thead>
+                            <tbody id="excel-preview-tbody">
+                                <tr><td colspan="10" style="text-align:center; color:#888;">Carga un archivo Excel para ver la vista previa.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button id="btn-confirmar-excel" onclick="confirmarCargaMasivaExcel()" class="btn-success" style="width:100%; padding:14px; font-size:16px; font-weight:bold;" disabled>
+                        🚀 Confirmar Carga Masiva de Libros a la BD
+                    </button>
                 </div>
 
-                <!-- Tabla de Previsualización -->
-                <div class="table-responsive" style="max-height:350px; overflow-y:auto; margin-bottom:20px;">
-                    <table class="bib-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>COD</th>
-                                <th>Nº</th>
-                                <th>TÍTULO</th>
-                                <th>AUTOR</th>
-                                <th>EDITORIAL</th>
-                                <th>AÑO</th>
-                                <th>Nº EJEM.</th>
-                                <th>ESTADO</th>
-                                <th>CÓDIGOS A GENERAR</th>
-                            </tr>
-                        </thead>
-                        <tbody id="excel-preview-tbody">
-                            <tr><td colspan="10" style="text-align:center; color:#888;">Carga un archivo Excel para ver la vista previa.</td></tr>
-                        </tbody>
-                    </table>
-                </div>
+                <!-- SECCIÓN IMPORTAR PROYECTOS -->
+                <div id="import-section-proyectos" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+                        <h3>📂 Carga Masiva de Proyectos (PROYECTOS.xlsx)</h3>
+                    </div>
 
-                <button id="btn-confirmar-excel" onclick="confirmarCargaMasivaExcel()" class="btn-success" style="width:100%; padding:14px; font-size:16px; font-weight:bold;" disabled>
-                    🚀 Confirmar Carga Masiva a la Base de Datos
-                </button>
+                    <p style="color:#666; font-size:14px; margin-bottom:15px;">
+                        Selecciona el archivo Excel `PROYECTOS.xlsx` con la estructura: 
+                        <strong>Cod_Esp</strong> (2 dígitos), <strong>Nº</strong> (2 dígitos), <strong>GESTIÓN</strong> (Año), <strong>TÍTULO</strong>, <strong>ESPECIALIDAD</strong> y <strong>AUTORES / INTEGRANTES</strong>.
+                    </p>
+
+                    <div style="background:#f8f9fa; padding:20px; border-radius:8px; border:2px dashed #28a745; text-align:center; margin-bottom:20px;">
+                        <input type="file" id="excel-proyectos-file-input" accept=".xlsx, .xls, .csv" onchange="procesarArchivoProyectosExcel(event)" style="display:none;">
+                        <label for="excel-proyectos-file-input" class="btn-success" style="padding:12px 24px; cursor:pointer; display:inline-block; font-size:15px;">
+                            📂 Seleccionar Archivo PROYECTOS.xlsx
+                        </label>
+                        <div id="excel-proyectos-file-name" style="margin-top:10px; font-weight:bold; color:#333;"></div>
+                    </div>
+
+                    <!-- Resumen de Carga Proyectos -->
+                    <div id="excel-proyectos-summary-container" style="display:none; margin-bottom:20px; background:#e8f4fd; padding:15px; border-radius:8px; border:1px solid #b6d4fe;">
+                        <h4 style="color:#0056b3; margin-bottom:8px;">📋 Resumen de Proyectos Procesados:</h4>
+                        <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:14px;">
+                            <div>📂 <strong>Proyectos a Registrar:</strong> <span id="excel-proyectos-count-books">0</span></div>
+                            <div>🏷️ <strong>Códigos Únicos Generados (`Cod_Esp` + `Gestión` + `N°`):</strong> Ej. <span style="font-family:monospace; font-weight:bold; color:#0b5ed7;">01201401</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Previsualización Proyectos -->
+                    <div class="table-responsive" style="max-height:350px; overflow-y:auto; margin-bottom:20px;">
+                        <table class="bib-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Código Único</th>
+                                    <th>Cod_Esp</th>
+                                    <th>Gestión</th>
+                                    <th>Nº</th>
+                                    <th>Título del Proyecto</th>
+                                    <th>Especialidad</th>
+                                    <th>Autores / Equipo</th>
+                                </tr>
+                            </thead>
+                            <tbody id="excel-proyectos-preview-tbody">
+                                <tr><td colspan="8" style="text-align:center; color:#888;">Carga el archivo PROYECTOS.xlsx para ver la vista previa.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button id="btn-confirmar-excel-proyectos" onclick="confirmarCargaMasivaProyectosExcel()" class="btn-success" style="width:100%; padding:14px; font-size:16px; font-weight:bold;" disabled>
+                        🚀 Confirmar Carga Masiva de Proyectos a la BD
+                    </button>
+                </div>
             </div>
 
         </div>
@@ -603,6 +749,6 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/app.js?v=20260827_02"></script>
+<script src="js/app.js?v=20260827_03"></script>
 </body>
 </html>

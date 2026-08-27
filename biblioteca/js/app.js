@@ -116,6 +116,37 @@ async function crearTablasBiblioteca() {
     `);
     try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN ejemplar_id TEXT`); } catch (e) {}
     try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN fecha_expiracion TEXT`); } catch (e) {}
+
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_proyectos (
+            id TEXT PRIMARY KEY,
+            cod_esp TEXT NOT NULL,
+            gestion TEXT NOT NULL,
+            proyecto_num TEXT NOT NULL,
+            codigo_proyecto TEXT UNIQUE NOT NULL,
+            titulo TEXT NOT NULL,
+            especialidad TEXT,
+            autores TEXT,
+            modalidad TEXT,
+            cantidad_total INTEGER DEFAULT 1,
+            cantidad_disponible INTEGER DEFAULT 1,
+            estado_fisico TEXT DEFAULT 'Bueno',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await tursodb.query(`
+        CREATE TABLE IF NOT EXISTS biblioteca_proyectos_ejemplares (
+            id TEXT PRIMARY KEY,
+            proyecto_id TEXT NOT NULL,
+            codigo_ejemplar TEXT UNIQUE NOT NULL,
+            ejemplar_num INTEGER NOT NULL,
+            estado TEXT DEFAULT 'disponible',
+            estado_fisico TEXT DEFAULT 'Bueno',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    try { await tursodb.query(`ALTER TABLE biblioteca_prestamo_detalles ADD COLUMN tipo_item TEXT DEFAULT 'libro'`); } catch (e) {}
+    try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN tipo_item TEXT DEFAULT 'libro'`); } catch (e) {}
 }
 
 function toggleDropdown() {
@@ -876,6 +907,7 @@ function switchBibTab(tabName) {
     if (btnEl) btnEl.classList.add('active');
 
     if (tabName === 'catalogo') cargarCatalogoLibros();
+    if (tabName === 'proyectos') cargarCatalogoProyectos();
     if (tabName === 'monitoreo') cargarMonitoreoPrestamos();
     if (tabName === 'reservas') cargarReservas();
     if (tabName === 'carrito') actualizarVistaCarrito();
@@ -996,21 +1028,16 @@ async function buscarLibroParaCarrito() {
     const resultsEl = document.getElementById('cart-book-results');
     if (!rawQ) { resultsEl.innerHTML = ''; return; }
 
-    resultsEl.innerHTML = '<p style="color:#666; font-size:13px;">Buscando ejemplares...</p>';
+    resultsEl.innerHTML = '<p style="color:#666; font-size:13px;">Buscando ejemplares de libros y proyectos...</p>';
 
     const cleanQ = rawQ.replace(/['"]/g, '');
 
-    // Construir variantes normalizadas del código si parece un código numérico
-    // El formato es: AA BB CC (área 2 dig + libro 2 dig + ejemplar 2 dig = 6 dígitos)
     const searchVariants = [cleanQ];
     if (/^\d+$/.test(cleanQ)) {
-        // Si tiene 6 dígitos exactos, buscar directo
-        if (cleanQ.length === 6) {
+        if (cleanQ.length === 6 || cleanQ.length === 8) {
             searchVariants.push(cleanQ);
         }
-        // Si tiene menos de 6 dígitos, intentar normalizar como prefijo de código
         if (cleanQ.length <= 4) {
-            // Dividir en grupos de 2 dígitos y reconstruir con pad2
             const parts = [];
             for (let i = 0; i < cleanQ.length; i += 2) {
                 parts.push(pad2(cleanQ.slice(i, i + 2)));
@@ -1018,22 +1045,17 @@ async function buscarLibroParaCarrito() {
             const normalized = parts.join('');
             if (!searchVariants.includes(normalized)) searchVariants.push(normalized);
         }
-        // También buscar como si fueran los primeros N dígitos del código de 6
         const padded = cleanQ.padStart(2, '0');
         if (!searchVariants.includes(padded)) searchVariants.push(padded);
     }
 
-    // Construir condición LIKE para todas las variantes
-    const likeConditions = searchVariants.map(() =>
-        `e.codigo_ejemplar LIKE ?`
-    ).join(' OR ');
-
+    const likeConditions = searchVariants.map(() => `e.codigo_ejemplar LIKE ?`).join(' OR ');
     const likeParams = searchVariants.map(v => `${v}%`);
 
-    // 1. Búsqueda por código y texto (título, autor)
+    // 1. Búsqueda en Libros
     let ejemRes = await tursodb.query(
         `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado,
-                l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
+                l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num, 'libro' as tipo_item 
          FROM biblioteca_ejemplares e 
          JOIN biblioteca_libros l ON e.libro_id = l.id 
          WHERE ${likeConditions}
@@ -1041,37 +1063,33 @@ async function buscarLibroParaCarrito() {
             OR l.titulo LIKE ?
             OR l.autor LIKE ?
             OR l.editorial LIKE ?
-         LIMIT 30`,
+         LIMIT 20`,
         [...likeParams, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
     );
 
-    let rows = ejemRes.rows || [];
+    let rowsLibros = ejemRes.rows || [];
 
-    // 2. Si no hay resultados y hay varias palabras, buscar por palabras clave
-    if (rows.length === 0 && cleanQ.includes(' ')) {
-        const words = cleanQ.split(/\s+/).filter(w => w.length >= 3).slice(0, 4);
-        if (words.length > 0) {
-            const conditions = words.map(() => `(l.titulo LIKE ? OR l.autor LIKE ? OR e.codigo_ejemplar LIKE ?)`).join(' AND ');
-            const params = [];
-            words.forEach(w => {
-                params.push(`%${w}%`, `%${w}%`, `%${w}%`);
-            });
+    // 2. Búsqueda en Proyectos
+    const proyLikeConditions = searchVariants.map(() => `pe.codigo_ejemplar LIKE ?`).join(' OR ');
+    const proyRes = await tursodb.query(
+        `SELECT pe.id as ejem_id, pe.codigo_ejemplar, pe.ejemplar_num, pe.estado as ejem_estado,
+                p.id as libro_id, p.titulo, p.autores as autor, 'PROYECTO DE GRADO' as editorial, p.cod_esp as area_cod, p.proyecto_num as libro_num, 'proyecto' as tipo_item 
+         FROM biblioteca_proyectos_ejemplares pe 
+         JOIN biblioteca_proyectos p ON pe.proyecto_id = p.id 
+         WHERE ${proyLikeConditions}
+            OR pe.codigo_ejemplar LIKE ?
+            OR p.titulo LIKE ?
+            OR p.autores LIKE ?
+            OR p.especialidad LIKE ?
+         LIMIT 20`,
+        [...likeParams, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
+    );
 
-            ejemRes = await tursodb.query(
-                `SELECT e.id as ejem_id, e.codigo_ejemplar, e.ejemplar_num, e.estado as ejem_estado,
-                        l.id as libro_id, l.titulo, l.autor, l.editorial, l.area_cod, l.libro_num 
-                 FROM biblioteca_ejemplares e 
-                 JOIN biblioteca_libros l ON e.libro_id = l.id 
-                 WHERE ${conditions}
-                 LIMIT 30`,
-                params
-            );
-            rows = ejemRes.rows || [];
-        }
-    }
+    let rowsProyectos = proyRes.rows || [];
+    let rows = [...rowsLibros, ...rowsProyectos];
 
     if (rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron ejemplares. Intenta por código (ej: <b>010101</b>) o palabras del título.</p>';
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron libros ni proyectos. Intenta por código (ej: <b>010101</b> o <b>01201401</b>) o palabras del título.</p>';
         return;
     }
 
@@ -1080,14 +1098,17 @@ async function buscarLibroParaCarrito() {
         const estaDisponible = item.ejem_estado === 'disponible';
         const disabled = !estaDisponible || enCarrito;
         const btnText = enCarrito ? 'En Carrito' : (!estaDisponible ? `[${item.ejem_estado.toUpperCase()}]` : '+ Agregar');
+        const badgeTipo = item.tipo_item === 'proyecto' 
+            ? `<span class="badge badge-info" style="font-size:10px; margin-left:4px;">📂 PROYECTO</span>` 
+            : `<span class="badge badge-secondary" style="font-size:10px; margin-left:4px;">📖 LIBRO</span>`;
 
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #eee; background:#fff;">
                 <div style="font-size:13px;">
-                    <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> ${item.titulo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
-                    <small style="color:#666;">Área: ${item.area_cod || '-'} | Libro Nº: ${item.libro_num || '-'} | Autor: ${item.autor || 'N/A'}</small>
+                    <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong> ${badgeTipo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
+                    <small style="color:#666;">${item.tipo_item === 'proyecto' ? 'Cod_Esp' : 'Área'}: ${item.area_cod || '-'} | Nº: ${item.libro_num || '-'} | Autor(es): ${item.autor || 'N/A'}</small>
                 </div>
-                <button onclick="agregarAlCarrito('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})')" 
+                <button onclick="agregarAlCarrito('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})', '${item.tipo_item}')" 
                         class="${disabled ? 'btn-secondary' : 'btn-success'}" 
                         style="padding:5px 10px; font-size:12px;" ${disabled ? 'disabled' : ''}>
                     ${btnText}
@@ -1102,9 +1123,9 @@ function escapeHtml(str) {
     return str.replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
 
-function agregarAlCarrito(ejemId, libroId, codigo, titulo) {
+function agregarAlCarrito(ejemId, libroId, codigo, titulo, tipoItem = 'libro') {
     if (cartItems.some(i => i.ejemId === ejemId)) return;
-    cartItems.push({ ejemId, libroId, codigo, titulo });
+    cartItems.push({ ejemId, libroId, codigo, titulo, tipoItem });
     actualizarVistaCarrito();
     buscarLibroParaCarrito();
 }
@@ -1175,23 +1196,31 @@ async function confirmarPrestamoCarrito() {
         [prestamoId, userCi, userName, userTipo, fechaHoy, fechaDevolucionPrevista]
     );
 
-    // 2. Insertar Detalle de Libros y Marcar Ejemplar como 'prestado'
+    // 2. Insertar Detalle de Libros / Proyectos y Marcar Ejemplar como 'prestado'
     for (const item of cartItems) {
         const detalleId = `${prestamoId}-${item.ejemId}`;
+        const tipoItem = item.tipoItem || 'libro';
+
         await tursodb.query(
-            `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, ejemplar_id, libro_codigo, libro_titulo, estado_item)
-             VALUES (?, ?, ?, ?, ?, ?, 'prestado')`,
-            [detalleId, prestamoId, item.libroId, item.ejemId, item.codigo, item.titulo]
+            `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, ejemplar_id, libro_codigo, libro_titulo, estado_item, tipo_item)
+             VALUES (?, ?, ?, ?, ?, ?, 'prestado', ?)`,
+            [detalleId, prestamoId, item.libroId, item.ejemId, item.codigo, item.titulo, tipoItem]
         );
 
-        // Actualizar estado del ejemplar
-        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'prestado' WHERE id = ?`, [item.ejemId]);
-
-        // Actualizar stock disponible en biblioteca_libros
-        const libRes = await tursodb.query(`SELECT cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [item.libroId]);
-        if (libRes.rows && libRes.rows.length > 0) {
-            const currentDisp = libRes.rows[0].cantidad_disponible || 0;
-            await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, currentDisp - 1), item.libroId]);
+        if (tipoItem === 'proyecto') {
+            await tursodb.query(`UPDATE biblioteca_proyectos_ejemplares SET estado = 'prestado' WHERE id = ?`, [item.ejemId]);
+            const proyRes = await tursodb.query(`SELECT cantidad_disponible FROM biblioteca_proyectos WHERE id = ?`, [item.libroId]);
+            if (proyRes.rows && proyRes.rows.length > 0) {
+                const currentDisp = proyRes.rows[0].cantidad_disponible || 0;
+                await tursodb.query(`UPDATE biblioteca_proyectos SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, currentDisp - 1), item.libroId]);
+            }
+        } else {
+            await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'prestado' WHERE id = ?`, [item.ejemId]);
+            const libRes = await tursodb.query(`SELECT cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [item.libroId]);
+            if (libRes.rows && libRes.rows.length > 0) {
+                const currentDisp = libRes.rows[0].cantidad_disponible || 0;
+                await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, currentDisp - 1), item.libroId]);
+            }
         }
     }
 
@@ -1426,7 +1455,11 @@ async function procesarDevolucionSeleccionados(prestamoId) {
                     [fechaHoy, d.id]
                 );
 
-                // Verificar si hay reservas pendientes para este libro
+                const isProyecto = d.tipo_item === 'proyecto';
+                const tableEjemplares = isProyecto ? 'biblioteca_proyectos_ejemplares' : 'biblioteca_ejemplares';
+                const tableCatalog = isProyecto ? 'biblioteca_proyectos' : 'biblioteca_libros';
+
+                // Verificar si hay reservas pendientes para este libro / proyecto
                 const resPend = await tursodb.query(
                     `SELECT * FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente' AND (ejemplar_id IS NULL OR ejemplar_id = '') ORDER BY created_at ASC LIMIT 1`,
                     [d.libro_id]
@@ -1442,17 +1475,17 @@ async function procesarDevolucionSeleccionados(prestamoId) {
                     );
 
                     if (d.ejemplar_id) {
-                        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [d.ejemplar_id]);
+                        await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'reservado' WHERE id = ?`, [d.ejemplar_id]);
                     }
                 } else {
                     if (d.ejemplar_id) {
-                        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
+                        await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
                     }
-                    const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
-                    if (libRes.rows && libRes.rows.length > 0) {
-                        const lib = libRes.rows[0];
-                        const nDisp = Math.min(lib.cantidad_total || 1, (lib.cantidad_disponible || 0) + 1);
-                        await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
+                    const catRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM ${tableCatalog} WHERE id = ?`, [d.libro_id]);
+                    if (catRes.rows && catRes.rows.length > 0) {
+                        const cat = catRes.rows[0];
+                        const nDisp = Math.min(cat.cantidad_total || 1, (cat.cantidad_disponible || 0) + 1);
+                        await tursodb.query(`UPDATE ${tableCatalog} SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
                     }
                 }
             }
@@ -2299,4 +2332,404 @@ async function confirmarCargaMasivaExcel() {
     btn.textContent = '🚀 Confirmar Carga Masiva a la Base de Datos';
 
     switchBibTab('catalogo');
+}
+
+// ---------- 4. MÓDULO DE PROYECTOS DE GRADO / TESIS ----------
+
+function switchImportMode(mode) {
+    const secLibros = document.getElementById('import-section-libros');
+    const secProyectos = document.getElementById('import-section-proyectos');
+    const btnLibros = document.getElementById('btn-mode-libros');
+    const btnProyectos = document.getElementById('btn-mode-proyectos');
+
+    if (mode === 'proyectos') {
+        if (secLibros) secLibros.style.display = 'none';
+        if (secProyectos) secProyectos.style.display = 'block';
+        if (btnLibros) btnLibros.className = 'btn-secondary';
+        if (btnProyectos) btnProyectos.className = 'btn-primary';
+    } else {
+        if (secLibros) secLibros.style.display = 'block';
+        if (secProyectos) secProyectos.style.display = 'none';
+        if (btnLibros) btnLibros.className = 'btn-primary';
+        if (btnProyectos) btnProyectos.className = 'btn-secondary';
+    }
+}
+
+let excelParsedProyectosRows = [];
+
+function procesarArchivoProyectosExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    document.getElementById('excel-proyectos-file-name').textContent = `📄 Archivo seleccionado: ${file.name}`;
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+
+            const rawJson = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+            excelParsedProyectosRows = [];
+
+            let prevRowA = '';
+
+            for (let i = 0; i < rawJson.length; i++) {
+                const row = rawJson[i];
+                if (!row || row.length === 0) continue;
+
+                const colA = String(row[0] || '').trim();
+                const colB = String(row[1] || '').trim();
+                const colC = String(row[2] || '').trim();
+                const colD = String(row[3] || '').trim();
+                const colE = String(row[4] || '').trim();
+                const colH = String(row[7] || row[6] || '').trim();
+
+                if (i < 3 && colA.length > 15) {
+                    prevRowA = colA;
+                    continue;
+                }
+
+                if (colA.match(/^\d+$/) && colB.match(/^\d+$/) && colC.match(/^\d{4}$/)) {
+                    const codEsp = pad2(colA);
+                    const numProj = pad2(colB);
+                    const gestion = colC;
+                    const codigo = `${codEsp}${gestion}${numProj}`;
+
+                    let titulo = '';
+                    if (colE.length > 10 && colE.toUpperCase() !== 'ESPECIALIDAD') {
+                        titulo = colE;
+                    } else if (colD.length > 10 && colD.toUpperCase() !== 'TITULO') {
+                        titulo = colD;
+                    } else if (prevRowA && prevRowA.length > 15) {
+                        titulo = prevRowA;
+                    } else {
+                        titulo = colE || colD || 'Proyecto de Grado';
+                    }
+                    prevRowA = '';
+
+                    const especialidad = (colE && colE !== titulo && colE.length <= 40 && colE.toUpperCase() !== 'ESPECIALIDAD') ? colE : (colD && colD !== titulo && colD.length <= 40 && colD.toUpperCase() !== 'TITULO' ? colD : '');
+                    const autores = colH.replace(/\n/g, ', ');
+
+                    excelParsedProyectosRows.push({
+                        cod_esp: codEsp,
+                        gestion: gestion,
+                        proyecto_num: numProj,
+                        codigo_proyecto: codigo,
+                        titulo: titulo,
+                        especialidad: especialidad,
+                        autores: autores
+                    });
+                }
+            }
+
+            renderPrevisualizacionProyectosExcel();
+        } catch (err) {
+            console.error('Error procesando Excel de proyectos:', err);
+            alert('❌ Error al leer el archivo Excel de proyectos: ' + err.message);
+        }
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+
+function renderPrevisualizacionProyectosExcel() {
+    const tbody = document.getElementById('excel-proyectos-preview-tbody');
+    const summaryContainer = document.getElementById('excel-proyectos-summary-container');
+    const countBooksEl = document.getElementById('excel-proyectos-count-books');
+    const btnConfirm = document.getElementById('btn-confirmar-excel-proyectos');
+
+    if (!tbody) return;
+
+    if (excelParsedProyectosRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#d9534f; font-weight:bold;">⚠️ No se encontraron proyectos válidos en el Excel. Verifica las columnas Cod_Esp, Nº, GESTIÓN y TÍTULO.</td></tr>';
+        if (summaryContainer) summaryContainer.style.display = 'none';
+        if (btnConfirm) btnConfirm.disabled = true;
+        return;
+    }
+
+    if (summaryContainer) summaryContainer.style.display = 'block';
+    if (countBooksEl) countBooksEl.textContent = excelParsedProyectosRows.length;
+    if (btnConfirm) btnConfirm.disabled = false;
+
+    const previewLimit = 150;
+    const previewRows = excelParsedProyectosRows.slice(0, previewLimit);
+
+    tbody.innerHTML = previewRows.map((p, idx) => `
+        <tr>
+            <td>${idx + 1}</td>
+            <td><span class="book-code-chip">${p.codigo_proyecto}</span></td>
+            <td>${p.cod_esp}</td>
+            <td>${p.gestion}</td>
+            <td>${p.proyecto_num}</td>
+            <td><strong>${escapeHtml(p.titulo)}</strong></td>
+            <td>${escapeHtml(p.especialidad || '-')}</td>
+            <td>${escapeHtml(p.autores || '-')}</td>
+        </tr>
+    `).join('') + (excelParsedProyectosRows.length > previewLimit ? `<tr><td colspan="8" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">... y ${excelParsedProyectosRows.length - previewLimit} proyectos más (se importarán todos al confirmar).</td></tr>` : '');
+}
+
+async function confirmarCargaMasivaProyectosExcel() {
+    if (!excelParsedProyectosRows || excelParsedProyectosRows.length === 0) {
+        alert('⚠️ No hay proyectos para cargar.');
+        return;
+    }
+
+    if (!confirm(`¿Confirmar la carga masiva de ${excelParsedProyectosRows.length} proyectos a la base de datos?`)) return;
+
+    const btn = document.getElementById('btn-confirmar-excel-proyectos');
+    btn.disabled = true;
+    btn.textContent = `⏳ Cargando ${excelParsedProyectosRows.length} proyectos... Por favor espera...`;
+
+    try {
+        let countProy = 0;
+        let countEjem = 0;
+
+        for (let idx = 0; idx < excelParsedProyectosRows.length; idx++) {
+            const p = excelParsedProyectosRows[idx];
+            const proyId = `proy-${Date.now()}-${idx}`;
+
+            await tursodb.query(
+                `INSERT OR REPLACE INTO biblioteca_proyectos (id, cod_esp, gestion, proyecto_num, codigo_proyecto, titulo, especialidad, autores, cantidad_total, cantidad_disponible, estado_fisico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Bueno')`,
+                [proyId, p.cod_esp, p.gestion, p.proyecto_num, p.codigo_proyecto, p.titulo, p.especialidad, p.autores]
+            );
+            countProy++;
+
+            const ejemId = `proyejem-${proyId}-1`;
+            await tursodb.query(
+                `INSERT OR REPLACE INTO biblioteca_proyectos_ejemplares (id, proyecto_id, codigo_ejemplar, ejemplar_num, estado, estado_fisico) VALUES (?, ?, ?, 1, 'disponible', 'Bueno')`,
+                [ejemId, proyId, p.codigo_proyecto]
+            );
+            countEjem++;
+        }
+
+        alert(`✅ CARGA MASIVA DE PROYECTOS EXITOSA\nSe registraron ${countProy} proyectos y ${countEjem} ejemplares con código único de 8 dígitos.`);
+        btn.textContent = '🚀 Confirmar Carga Masiva de Proyectos a la BD';
+        btn.disabled = false;
+        excelParsedProyectosRows = [];
+        document.getElementById('excel-proyectos-file-name').textContent = '';
+        document.getElementById('excel-proyectos-preview-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">Carga completada. Selecciona un nuevo archivo si deseas continuar.</td></tr>';
+        document.getElementById('excel-proyectos-summary-container').style.display = 'none';
+
+        switchBibTab('proyectos');
+    } catch (err) {
+        console.error('Error en carga masiva de proyectos:', err);
+        alert('❌ Error al insertar proyectos en la base de datos: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '🚀 Confirmar Carga Masiva de Proyectos a la BD';
+    }
+}
+
+// ---------- CATÁLOGO DE PROYECTOS ----------
+
+let catalogoProyectosCache = [];
+let catalogoProyectosEjemplaresMap = {};
+
+async function cargarCatalogoProyectos() {
+    const tbody = document.getElementById('proyectos-table-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>';
+
+    const res = await tursodb.query(`SELECT * FROM biblioteca_proyectos ORDER BY gestion DESC, CAST(cod_esp AS INTEGER) ASC, CAST(proyecto_num AS INTEGER) ASC`);
+    if (!res.rows || res.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No hay proyectos registrados en el catálogo. Usa el botón de arriba o la sección de Carga Masiva para registrar proyectos.</td></tr>';
+        return;
+    }
+
+    catalogoProyectosCache = res.rows;
+
+    const ejemRes = await tursodb.query(`SELECT proyecto_id, codigo_ejemplar, estado, ejemplar_num FROM biblioteca_proyectos_ejemplares ORDER BY ejemplar_num ASC`);
+    const todosEjemplares = ejemRes.rows || [];
+
+    catalogoProyectosEjemplaresMap = {};
+    todosEjemplares.forEach(e => {
+        if (!catalogoProyectosEjemplaresMap[e.proyecto_id]) catalogoProyectosEjemplaresMap[e.proyecto_id] = [];
+        catalogoProyectosEjemplaresMap[e.proyecto_id].push(e);
+    });
+
+    renderTablaProyectos(catalogoProyectosCache);
+}
+
+function renderTablaProyectos(lista) {
+    const tbody = document.getElementById('proyectos-table-body');
+    if (!tbody) return;
+
+    if (lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No se encontraron proyectos con los filtros seleccionados.</td></tr>';
+        return;
+    }
+
+    const limit = 200;
+    const listaRender = lista.slice(0, limit);
+
+    let rowsHtml = listaRender.map(p => {
+        const total = p.cantidad_total || 1;
+        const disp = p.cantidad_disponible !== null ? p.cantidad_disponible : total;
+
+        const ejems = catalogoProyectosEjemplaresMap[p.id] || [];
+        const codigosList = ejems.map(e => {
+            const st = (e.estado || 'disponible').toLowerCase();
+            let bg = '#d4edda'; let color = '#155724'; let border = '#c3e6cb'; let labelEstado = 'Disponible';
+            if (st === 'prestado') { bg = '#f8d7da'; color = '#721c24'; border = '#f5c6cb'; labelEstado = 'Prestado'; }
+            else if (st === 'reservado' || st === 'reservada') { bg = '#e2e3e5'; color = '#383d41'; border = '#d6d8db'; labelEstado = 'Reservado'; }
+            return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:12px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
+        }).join('');
+
+        return `
+            <tr>
+                <td>${codigosList || `<span class="book-code-chip">${p.codigo_proyecto}</span>`}</td>
+                <td><strong>${p.gestion || '-'}</strong></td>
+                <td><span class="badge badge-info">${escapeHtml(p.especialidad || 'Especialidad')}</span></td>
+                <td><strong>${escapeHtml(p.titulo)}</strong></td>
+                <td>${escapeHtml(p.autores || 'N/A')}</td>
+                <td><strong>${disp} / ${total}</strong></td>
+                <td><span class="badge badge-secondary">${p.estado_fisico || 'Bueno'}</span></td>
+                <td>
+                    <button onclick="editarProyecto('${p.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
+                    <button onclick="eliminarProyecto('${p.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    if (lista.length > limit) {
+        rowsHtml += `<tr><td colspan="8" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} proyectos de ${lista.length} registrados. Usa el buscador arriba para filtrar.</td></tr>`;
+    }
+
+    tbody.innerHTML = rowsHtml;
+}
+
+function filtrarCatalogoProyectos() {
+    const q = document.getElementById('proy-search-input').value.toLowerCase().trim();
+    const stGestion = document.getElementById('proy-filter-gestion').value;
+
+    const filtrados = catalogoProyectosCache.filter(p => {
+        const matchQ = p.codigo_proyecto.toLowerCase().includes(q) ||
+                       p.titulo.toLowerCase().includes(q) ||
+                       (p.autores || '').toLowerCase().includes(q) ||
+                       (p.especialidad || '').toLowerCase().includes(q);
+
+        let matchGestion = true;
+        if (stGestion) matchGestion = String(p.gestion) === stGestion;
+
+        return matchQ && matchGestion;
+    });
+
+    renderTablaProyectos(filtrados);
+}
+
+function abrirModalProyecto() {
+    document.getElementById('form-proyecto-container').style.display = 'block';
+    document.getElementById('form-proyecto-title').textContent = 'Registrar Nuevo Proyecto';
+    document.getElementById('proy-edit-id').value = '';
+    document.getElementById('proy-input-esp').value = '';
+    document.getElementById('proy-input-gestion').value = new Date().getFullYear();
+    document.getElementById('proy-input-num').value = '';
+    document.getElementById('proy-input-titulo').value = '';
+    document.getElementById('proy-input-especialidad').value = '';
+    document.getElementById('proy-input-autores').value = '';
+    actualizarPrevisualizacionCodigoProyecto();
+}
+
+function cerrarFormProyecto() {
+    document.getElementById('form-proyecto-container').style.display = 'none';
+}
+
+function actualizarPrevisualizacionCodigoProyecto() {
+    const esp = pad2(document.getElementById('proy-input-esp')?.value.trim());
+    const gestion = String(document.getElementById('proy-input-gestion')?.value.trim() || '');
+    const num = pad2(document.getElementById('proy-input-num')?.value.trim());
+    const prevEl = document.getElementById('proy-code-preview');
+    if (!prevEl) return;
+
+    if (!esp || !gestion || !num) {
+        prevEl.textContent = '🏷️ Código que se generará: (Ingresa Cod_Esp, Gestión y Nº)';
+        return;
+    }
+
+    prevEl.textContent = `🏷️ Código que se generará: ${esp}${gestion}${num}`;
+}
+
+async function guardarProyecto() {
+    const editId = document.getElementById('proy-edit-id').value;
+    const esp = pad2(document.getElementById('proy-input-esp').value.trim());
+    const gestion = document.getElementById('proy-input-gestion').value.trim();
+    const num = pad2(document.getElementById('proy-input-num').value.trim());
+    const titulo = document.getElementById('proy-input-titulo').value.trim();
+    const especialidad = document.getElementById('proy-input-especialidad').value.trim();
+    const autores = document.getElementById('proy-input-autores').value.trim();
+
+    if (!esp || !gestion || !num || !titulo) {
+        alert('⚠️ Por favor completa los campos obligatorios: Cod_Esp, Gestión, Nº y Título.');
+        return;
+    }
+
+    const codigoProyecto = `${esp}${gestion}${num}`;
+
+    try {
+        if (editId) {
+            await tursodb.query(
+                `UPDATE biblioteca_proyectos SET cod_esp = ?, gestion = ?, proyecto_num = ?, codigo_proyecto = ?, titulo = ?, especialidad = ?, autores = ? WHERE id = ?`,
+                [esp, gestion, num, codigoProyecto, titulo, especialidad, autores, editId]
+            );
+
+            await tursodb.query(
+                `UPDATE biblioteca_proyectos_ejemplares SET codigo_ejemplar = ? WHERE proyecto_id = ?`,
+                [codigoProyecto, editId]
+            );
+
+            alert('✅ Proyecto actualizado correctamente.');
+        } else {
+            const proyId = `proy-${Date.now()}`;
+            await tursodb.query(
+                `INSERT INTO biblioteca_proyectos (id, cod_esp, gestion, proyecto_num, codigo_proyecto, titulo, especialidad, autores, cantidad_total, cantidad_disponible, estado_fisico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Bueno')`,
+                [proyId, esp, gestion, num, codigoProyecto, titulo, especialidad, autores]
+            );
+
+            await tursodb.query(
+                `INSERT INTO biblioteca_proyectos_ejemplares (id, proyecto_id, codigo_ejemplar, ejemplar_num, estado, estado_fisico) VALUES (?, ?, ?, 1, 'disponible', 'Bueno')`,
+                [`proyejem-${proyId}-1`, proyId, codigoProyecto]
+            );
+
+            alert('✅ Proyecto registrado con éxito. Código asignado: ' + codigoProyecto);
+        }
+
+        cerrarFormProyecto();
+        await cargarCatalogoProyectos();
+    } catch (err) {
+        console.error('Error al guardar proyecto:', err);
+        alert('❌ Error al guardar proyecto: ' + err.message);
+    }
+}
+
+function editarProyecto(id) {
+    const p = catalogoProyectosCache.find(x => x.id === id);
+    if (!p) return;
+
+    abrirModalProyecto();
+    document.getElementById('form-proyecto-title').textContent = `Editar Proyecto [${p.codigo_proyecto}]`;
+    document.getElementById('proy-edit-id').value = p.id;
+    document.getElementById('proy-input-esp').value = p.cod_esp || '';
+    document.getElementById('proy-input-gestion').value = p.gestion || '';
+    document.getElementById('proy-input-num').value = p.proyecto_num || '';
+    document.getElementById('proy-input-titulo').value = p.titulo || '';
+    document.getElementById('proy-input-especialidad').value = p.especialidad || '';
+    document.getElementById('proy-input-autores').value = p.autores || '';
+    actualizarPrevisualizacionCodigoProyecto();
+}
+
+async function eliminarProyecto(id) {
+    if (!confirm('¿Estás seguro de eliminar este proyecto del catálogo?')) return;
+    try {
+        await tursodb.query(`DELETE FROM biblioteca_proyectos_ejemplares WHERE proyecto_id = ?`, [id]);
+        await tursodb.query(`DELETE FROM biblioteca_proyectos WHERE id = ?`, [id]);
+        alert('🗑️ Proyecto eliminado del catálogo.');
+        await cargarCatalogoProyectos();
+    } catch (err) {
+        console.error('Error al eliminar proyecto:', err);
+        alert('❌ Error al eliminar: ' + err.message);
+    }
 }

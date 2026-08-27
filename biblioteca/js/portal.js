@@ -403,9 +403,25 @@ async function buscarLibrosPortal() {
         return;
     }
 
+    let miReservasPendientesEjemIds = new Set();
+    let miReservasPendientesLibroIds = new Set();
+    if (currentUser && currentUser.ci) {
+        const rCheck = await tursodb.query(
+            `SELECT ejemplar_id, libro_id FROM biblioteca_reservas WHERE persona_ci = ? AND estado = 'pendiente'`,
+            [currentUser.ci]
+        );
+        if (rCheck.rows) {
+            rCheck.rows.forEach(r => {
+                if (r.ejemplar_id) miReservasPendientesEjemIds.add(r.ejemplar_id);
+                if (r.libro_id) miReservasPendientesLibroIds.add(r.libro_id);
+            });
+        }
+    }
+
     resultsEl.innerHTML = rows.map(item => {
         portalSearchResultsMap[item.ejem_id] = item;
 
+        const yaReservadoPorMi = miReservasPendientesEjemIds.has(item.ejem_id) || miReservasPendientesLibroIds.has(item.libro_id);
         const estaDisponible = item.ejem_estado === 'disponible';
         const estaPrestado = item.ejem_estado === 'prestado';
         const estaReservado = item.ejem_estado === 'reservado';
@@ -415,7 +431,9 @@ async function buscarLibrosPortal() {
 
         let accionesHtml = '';
 
-        if (estaDisponible) {
+        if (yaReservadoPorMi) {
+            accionesHtml = `<span class="badge badge-warning" style="padding:6px 12px; font-size:12px;">✅ Reservado por ti</span>`;
+        } else if (estaDisponible) {
             accionesHtml = `
                 <button onclick="solicitarReservaPorId('${item.ejem_id}', true)" 
                         class="btn-info" style="padding:7px 14px; font-size:13px; font-weight:bold;">
@@ -427,7 +445,7 @@ async function buscarLibrosPortal() {
                 <span class="badge badge-danger" style="margin-right:8px;">PRESTADO</span>
                 <button onclick="solicitarReservaPorId('${item.ejem_id}', false)" 
                         class="btn-info" style="padding:7px 14px; font-size:13px; font-weight:bold;">
-                    🔖 Reservar
+                    🔖 Reservar (En cola)
                 </button>
             `;
         } else if (estaReservado) {
@@ -469,11 +487,21 @@ async function solicitarReservaPorId(ejemId, esDisponible) {
 async function solicitarReservaConExpiracion(libroId, ejemId, titulo, codigoEjemplar, esDisponible) {
     if (!currentUser) return;
 
+    // Verificar si ya se tiene una reserva activa para este ítem
+    const existRes = await tursodb.query(
+        `SELECT * FROM biblioteca_reservas WHERE persona_ci = ? AND (ejemplar_id = ? OR libro_id = ?) AND estado = 'pendiente'`,
+        [currentUser.ci, ejemId, libroId]
+    );
+    if (existRes.rows && existRes.rows.length > 0) {
+        alert(`⚠️ YA TIENES UNA RESERVA ACTIVA\nYa solicitaste la reserva para [${codigoEjemplar}]. Consulta tu bloque de 'Mis Reservas Activas'.`);
+        return;
+    }
+
     let mensajeConfirm = `¿Deseas solicitar una reserva del ejemplar [${codigoEjemplar}] de "${titulo}"?`;
     if (esDisponible) {
         mensajeConfirm += `\n\n📌 NOTA: Este ejemplar está actualmente disponible. Al reservarlo quedará apartado EXCLUSIVAMENTE para ti durante 12 HORAS. Si no lo recoges en ese lapso, la reserva se cancelará automáticamente.`;
     } else {
-        mensajeConfirm += `\n\n📌 NOTA: Este ejemplar está actualmente prestado. Al reservarlo, el usuario actual no podrá renovar su préstamo y el libro te será asignado al momento de su devolución.`;
+        mensajeConfirm += `\n\n📌 NOTA: Este ejemplar está actualmente prestado. Al reservarlo, el usuario actual no podrá renovar su préstamo y el libro te será asignado por 12 horas al momento de su devolución.`;
     }
 
     if (!confirm(mensajeConfirm)) return;
@@ -499,7 +527,7 @@ async function solicitarReservaConExpiracion(libroId, ejemId, titulo, codigoEjem
         await tursodb.query(`UPDATE biblioteca_proyectos_ejemplares SET estado = 'reservado' WHERE id = ?`, [ejemId]);
         alert(`✅ RESERVA REGISTRADA POR 12 HORAS\nHas apartado el ejemplar [${codigoEjemplar}]. Tienes 12 horas para recogerlo en la biblioteca.`);
     } else {
-        alert(`✅ RESERVA REGISTRADA\nHas reservado el ejemplar [${codigoEjemplar}]. El ejemplar te será asignado al ser devuelto.`);
+        alert(`✅ RESERVA EN COLA REGISTRADA\nHas reservado el ejemplar [${codigoEjemplar}]. El usuario actual no podrá renovar su préstamo y el ejemplar te será asignado por 12 horas al momento de su devolución.`);
     }
 
     switchPortalTab('reservas');

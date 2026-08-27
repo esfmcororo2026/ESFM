@@ -1482,6 +1482,8 @@ async function procesarDevolucionSeleccionados(prestamoId) {
         );
         const detalles = detRes.rows || [];
 
+        let reservasAsignadasAlerts = [];
+
         for (const d of detalles) {
             if (selectedIds.includes(d.id) && d.estado_item === 'prestado') {
                 await tursodb.query(
@@ -1493,10 +1495,13 @@ async function procesarDevolucionSeleccionados(prestamoId) {
                 const tableEjemplares = isProyecto ? 'biblioteca_proyectos_ejemplares' : 'biblioteca_ejemplares';
                 const tableCatalog = isProyecto ? 'biblioteca_proyectos' : 'biblioteca_libros';
 
-                // Verificar si hay reservas pendientes para este libro / proyecto
+                // Verificar si hay reservas pendientes para este ejemplar o libro / proyecto
                 const resPend = await tursodb.query(
-                    `SELECT * FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente' AND (ejemplar_id IS NULL OR ejemplar_id = '') ORDER BY created_at ASC LIMIT 1`,
-                    [d.libro_id]
+                    `SELECT * FROM biblioteca_reservas 
+                     WHERE estado = 'pendiente' 
+                       AND (ejemplar_id = ? OR libro_id = ?) 
+                     ORDER BY created_at ASC LIMIT 1`,
+                    [d.ejemplar_id, d.libro_id]
                 );
 
                 if (resPend.rows && resPend.rows.length > 0) {
@@ -1511,6 +1516,8 @@ async function procesarDevolucionSeleccionados(prestamoId) {
                     if (d.ejemplar_id) {
                         await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'reservado' WHERE id = ?`, [d.ejemplar_id]);
                     }
+
+                    reservasAsignadasAlerts.push(`• [${d.libro_codigo}] "${d.libro_titulo}" -> Reservado por ${resAsignada.persona_nombre} (CI: ${resAsignada.persona_ci}) por 12 HORAS.`);
                 } else {
                     if (d.ejemplar_id) {
                         await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
@@ -1532,15 +1539,15 @@ async function procesarDevolucionSeleccionados(prestamoId) {
 
         const prestadosCount = checkRest.rows[0]?.prestadosCount || 0;
 
-        if (prestadosCount === 0) {
-            await tursodb.query(
-                `UPDATE biblioteca_prestamos SET estado = 'devuelto', fecha_devolucion_real = ? WHERE id = ?`,
-                [fechaHoy, String(prestamoId)]
-            );
-            alert(`✅ Devolución completa registrada.\nTodos los libros del préstamo han sido devueltos.`);
-        } else {
-            alert(`✅ Devolución parcial registrada.\nSe devolvieron ${selectedIds.length} libro(s). Quedan ${prestadosCount} libro(s) pendientes en este préstamo.`);
+        let msgFinal = prestadosCount === 0 
+            ? `✅ Devolución completa registrada.\nTodos los libros del préstamo han sido devueltos.`
+            : `✅ Devolución parcial registrada.\nSe devolvieron ${selectedIds.length} libro(s). Quedan ${prestadosCount} libro(s) pendientes en este préstamo.`;
+
+        if (reservasAsignadasAlerts.length > 0) {
+            msgFinal += `\n\n📌 ATENCIÓN DE RESERVAS ASIGNADAS:\nLos siguientes ejemplares fueron apartados por 12 horas para otros usuarios:\n` + reservasAsignadasAlerts.join('\n');
         }
+
+        alert(msgFinal);
 
         cerrarModalDevolucion();
         await cargarMonitoreoPrestamos();
@@ -1574,8 +1581,8 @@ async function abrirModalRenovar(prestamoId) {
 
             if (!isDevuelto) {
                 const resCheck = await tursodb.query(
-                    `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
-                    [d.libro_id]
+                    `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE (libro_id = ? OR ejemplar_id = ?) AND estado = 'pendiente'`,
+                    [d.libro_id, d.ejemplar_id]
                 );
                 if (resCheck.rows && resCheck.rows[0]?.cant > 0) {
                     tieneReserva = true;
@@ -2020,18 +2027,33 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
     if (!res.rows || res.rows.length === 0) return;
     const r = res.rows[0];
 
+    let itemData = null;
+    let isProyecto = false;
+
     const libRes = await tursodb.query(`SELECT * FROM biblioteca_libros WHERE id = ?`, [r.libro_id]);
-    if (!libRes.rows || libRes.rows.length === 0) {
-        alert('❌ No se encontró el libro asociado a esta reserva.');
+    if (libRes.rows && libRes.rows.length > 0) {
+        itemData = libRes.rows[0];
+    } else {
+        const proyRes = await tursodb.query(`SELECT * FROM biblioteca_proyectos WHERE id = ?`, [r.libro_id]);
+        if (proyRes.rows && proyRes.rows.length > 0) {
+            itemData = proyRes.rows[0];
+            isProyecto = true;
+        }
+    }
+
+    if (!itemData) {
+        alert('❌ No se encontró el libro o proyecto asociado a esta reserva.');
         return;
     }
-    const libro = libRes.rows[0];
+
+    const tableEjemplares = isProyecto ? 'biblioteca_proyectos_ejemplares' : 'biblioteca_ejemplares';
+    const tableCatalog = isProyecto ? 'biblioteca_proyectos' : 'biblioteca_libros';
 
     let ejemId = r.ejemplar_id;
-    let ejemCodigo = '';
+    let ejemCodigo = r.libro_codigo || '';
 
     if (ejemId) {
-        const eRes = await tursodb.query(`SELECT * FROM biblioteca_ejemplares WHERE id = ?`, [ejemId]);
+        const eRes = await tursodb.query(`SELECT * FROM ${tableEjemplares} WHERE id = ?`, [ejemId]);
         if (eRes.rows && eRes.rows.length > 0) {
             ejemCodigo = eRes.rows[0].codigo_ejemplar;
         }
@@ -2039,7 +2061,7 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
 
     if (!ejemId || !ejemCodigo) {
         const eRes = await tursodb.query(
-            `SELECT * FROM biblioteca_ejemplares WHERE libro_id = ? AND estado IN ('disponible', 'reservado') LIMIT 1`,
+            `SELECT * FROM ${tableEjemplares} WHERE ${isProyecto ? 'proyecto_id' : 'libro_id'} = ? AND estado IN ('disponible', 'reservado') LIMIT 1`,
             [r.libro_id]
         );
         if (eRes.rows && eRes.rows.length > 0) {
@@ -2051,7 +2073,9 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
         }
     }
 
-    if (!confirm(`¿Aprobar reserva y crear préstamo activo para ${r.persona_nombre} (CI: ${r.persona_ci}) del libro "${libro.titulo}"?`)) return;
+    const tituloMostrar = r.libro_titulo || itemData.titulo || 'Sin título';
+
+    if (!confirm(`¿Aprobar reserva y crear préstamo activo para ${r.persona_nombre} (CI: ${r.persona_ci}) del ítem "${tituloMostrar}"?`)) return;
 
     const fechaHoy = new Date().toISOString();
     const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 2);
@@ -2067,18 +2091,18 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
     // 2. Crear Detalle de Préstamo
     const detalleId = `${prestamoId}-${ejemId}`;
     await tursodb.query(
-        `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, ejemplar_id, libro_codigo, libro_titulo, estado_item)
-         VALUES (?, ?, ?, ?, ?, ?, 'prestado')`,
-        [detalleId, prestamoId, r.libro_id, ejemId, ejemCodigo, libro.titulo]
+        `INSERT INTO biblioteca_prestamo_detalles (id, prestamo_id, libro_id, ejemplar_id, libro_codigo, libro_titulo, estado_item, tipo_item)
+         VALUES (?, ?, ?, ?, ?, ?, 'prestado', ?)`,
+        [detalleId, prestamoId, r.libro_id, ejemId, ejemCodigo, tituloMostrar, isProyecto ? 'proyecto' : 'libro']
     );
 
     // 3. Marcar ejemplar como prestado y reserva como completada
-    await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'prestado' WHERE id = ?`, [ejemId]);
+    await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'prestado' WHERE id = ?`, [ejemId]);
     await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'completada' WHERE id = ?`, [reservaId]);
 
-    // 4. Actualizar disponibilidad del libro
-    const disp = libro.cantidad_disponible !== null ? libro.cantidad_disponible : libro.cantidad_total;
-    await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, disp - 1), r.libro_id]);
+    // 4. Actualizar disponibilidad
+    const disp = itemData.cantidad_disponible !== null ? itemData.cantidad_disponible : itemData.cantidad_total;
+    await tursodb.query(`UPDATE ${tableCatalog} SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, disp - 1), r.libro_id]);
 
     alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nLímite devolución prevista: ${formatearFechaHora(fechaDevolucionPrevista)} (70h hábiles)`);
     await cargarReservas();

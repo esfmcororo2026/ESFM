@@ -799,31 +799,30 @@ function parseFecha(fechaStr) {
     return isNaN(d.getTime()) ? new Date() : d;
 }
 
-// Helper: Calcular fecha límite de devolución sumando 70 horas hábiles (Lunes a Viernes)
-// El conteo transcurre hora a hora omitiendo las 48 horas del fin de semana (Sábado y Domingo).
-function calcularFechaDevolucion(fechaInicio = new Date(), horasHabiles = 70) {
+// Helper: Calcular fecha límite de devolución sumando N días hábiles (Lunes a Viernes)
+// El día de inicio cuenta como Día 1.
+// Ejemplo: Inicio=Mié 26/08, diasHabiles=3 → Día1=Mié 26, Día2=Jue 27, Día3=Vie 28 → Deadline: Vie 28/08
+function calcularFechaDevolucion(fechaInicio = new Date(), diasHabiles = 3) {
     let fecha = new Date(parseFecha(fechaInicio).getTime());
 
-    // Si el inicio cae en fin de semana, mover al Lunes siguiente a las 00:00
-    if (fecha.getDay() === 6) {       // Sábado → Lunes
-        fecha.setDate(fecha.getDate() + 2);
-        fecha.setHours(0, 0, 0, 0);
-    } else if (fecha.getDay() === 0) { // Domingo → Lunes
+    // Si el inicio cae en fin de semana, mover al Lunes siguiente (ese será el día 1)
+    while (fecha.getDay() === 0 || fecha.getDay() === 6) {
         fecha.setDate(fecha.getDate() + 1);
-        fecha.setHours(0, 0, 0, 0);
     }
 
-    let horasContadas = 0;
-    while (horasContadas < horasHabiles) {
-        fecha.setTime(fecha.getTime() + 60 * 60 * 1000);
+    // Avanzar día a día contando sólo los días hábiles.
+    // El día de inicio ya cuenta como día 1, así que avanzamos diasHabiles-1 veces más.
+    let diasContados = 1;
+    while (diasContados < diasHabiles) {
+        fecha.setDate(fecha.getDate() + 1);
         const dia = fecha.getDay();
-        if (dia >= 1 && dia <= 5) { // Lunes (1) a Viernes (5)
-            horasContadas++;
-        }
-        if (dia === 6) { // Si llega a Sábado, saltar las 48 horas del fin de semana
-            fecha.setTime(fecha.getTime() + 48 * 60 * 60 * 1000);
+        if (dia >= 1 && dia <= 5) { // Solo Lunes(1) a Viernes(5)
+            diasContados++;
         }
     }
+
+    // Establecer el límite al final del día (23:59:59)
+    fecha.setHours(23, 59, 59, 0);
     return fecha.toISOString();
 }
 
@@ -1158,17 +1157,22 @@ async function confirmarPrestamoCarrito() {
     }
 
     const daysSelectEl = document.getElementById('cart-days-select');
-    const horas = daysSelectEl ? (parseInt(daysSelectEl.value) || 70) : 70;
+    const diasHabiles = daysSelectEl ? (parseInt(daysSelectEl.value) || 3) : 3;
+
+    // Capturar datos del usuario ANTES de operaciones async para evitar race conditions
+    const userName = cartUser.nombre;
+    const userCi = cartUser.ci;
+    const userTipo = cartUser.tipo;
 
     const fechaHoy = new Date().toISOString();
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), horas);
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), diasHabiles);
     const prestamoId = Date.now().toString();
 
     // 1. Insertar Cabecera de Préstamo
     await tursodb.query(
         `INSERT INTO biblioteca_prestamos (id, persona_ci, persona_nombre, persona_tipo, fecha_prestamo, fecha_devolucion_prevista, estado)
          VALUES (?, ?, ?, ?, ?, ?, 'activo')`,
-        [prestamoId, cartUser.ci, cartUser.nombre, cartUser.tipo, fechaHoy, fechaDevolucionPrevista]
+        [prestamoId, userCi, userName, userTipo, fechaHoy, fechaDevolucionPrevista]
     );
 
     // 2. Insertar Detalle de Libros y Marcar Ejemplar como 'prestado'
@@ -1191,7 +1195,7 @@ async function confirmarPrestamoCarrito() {
         }
     }
 
-    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} ejemplar(es) a ${cartUser.nombre}.\nFecha límite de devolución: ${formatearFechaHora(fechaDevolucionPrevista)}`);
+    alert(`✅ PRÉSTAMO REGISTRADO CON ÉXITO\nSe prestaron ${cartItems.length} ejemplar(es) a ${userName}.\nFecha límite de devolución: ${formatearFechaHora(fechaDevolucionPrevista)}`);
 
     // Resetear formulario y redirigir a monitoreo
     cartUser = null;
@@ -1240,6 +1244,9 @@ async function renderTablaMonitoreo(lista) {
             [p.id]
         );
         const detalles = detRes.rows || [];
+        const totalItems = detalles.length;
+        const devueltosCount = detalles.filter(d => d.estado_item === 'devuelto').length;
+
         const librosText = detalles.map(d => {
             const isDevuelto = d.estado_item === 'devuelto';
             const titleOnly = `${d.libro_titulo}${isDevuelto ? ' (DEVUELTO)' : ''}`;
@@ -1247,15 +1254,21 @@ async function renderTablaMonitoreo(lista) {
         }).join(' ');
 
         let estadoBadge = '';
-        if (p.estado === 'devuelto') {
+        if (p.estado === 'devuelto' || (totalItems > 0 && devueltosCount === totalItems)) {
             estadoBadge = '<span class="badge badge-success">Devuelto</span>';
         } else if (p.fecha_devolucion_prevista < ahoraIso) {
             estadoBadge = '<span class="badge badge-danger">⚠️ Vencido</span>';
+            if (devueltosCount > 0) {
+                estadoBadge += `<br><small style="color:#d9534f; font-weight:600;">(${devueltosCount}/${totalItems} devueltos)</small>`;
+            }
         } else {
             estadoBadge = '<span class="badge badge-warning">En Préstamo</span>';
+            if (devueltosCount > 0) {
+                estadoBadge += `<br><small style="color:#2b8a3e; font-weight:600;">(${devueltosCount}/${totalItems} devueltos)</small>`;
+            }
         }
 
-        const esActivo = p.estado === 'activo';
+        const esActivo = p.estado === 'activo' && devueltosCount < totalItems;
 
         rowsHtml += `
             <tr>
@@ -1269,8 +1282,8 @@ async function renderTablaMonitoreo(lista) {
                 <td>${estadoBadge}</td>
                 <td>
                     ${esActivo ? `
-                        <button onclick="devolverPrestamoCompleto('${p.id}')" class="btn-success" style="padding:4px 8px; font-size:12px; margin-bottom:3px;">↩️ Devolver</button>
-                        <button onclick="renovarPrestamo('${p.id}', '${p.fecha_devolucion_prevista}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar (70h)</button>
+                        <button onclick="abrirModalDevolver('${p.id}')" class="btn-success" style="padding:4px 8px; font-size:12px; margin-bottom:3px;">↩️ Devolver</button>
+                        <button onclick="abrirModalRenovar('${p.id}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar (70h)</button>
                     ` : '<small style="color:#888;">Finalizado</small>'}
                 </td>
             </tr>
@@ -1297,108 +1310,316 @@ function filtrarMonitoreo() {
     renderTablaMonitoreo(filtrados);
 }
 
-async function devolverPrestamoCompleto(prestamoId) {
-    if (!confirm('¿Confirmar la devolución de todos los libros de este préstamo?')) return;
+// ---------- DEVOLUCIÓN DE EJEMPLARES INDIVIDUALES ----------
 
-    const fechaHoy = new Date().toISOString();
-
-    const detRes = await tursodb.query(`SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [prestamoId]);
-    const detalles = detRes.rows || [];
-
-    for (const d of detalles) {
-        if (d.estado_item === 'prestado') {
-            await tursodb.query(
-                `UPDATE biblioteca_prestamo_detalles SET estado_item = 'devuelto', fecha_devolucion_item = ? WHERE id = ?`,
-                [fechaHoy, d.id]
-            );
-
-            // Verificar si hay reservas pendientes para este libro (en orden de solicitud)
-            const resPend = await tursodb.query(
-                `SELECT * FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente' AND (ejemplar_id IS NULL OR ejemplar_id = '') ORDER BY created_at ASC LIMIT 1`,
-                [d.libro_id]
-            );
-
-            if (resPend.rows && resPend.rows.length > 0) {
-                const resAsignada = resPend.rows[0];
-                const exp12h = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
-
-                await tursodb.query(
-                    `UPDATE biblioteca_reservas SET ejemplar_id = ?, fecha_expiracion = ? WHERE id = ?`,
-                    [d.ejemplar_id, exp12h, resAsignada.id]
-                );
-
-                if (d.ejemplar_id) {
-                    await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [d.ejemplar_id]);
-                }
-            } else {
-                if (d.ejemplar_id) {
-                    await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
-                }
-                const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
-                if (libRes.rows && libRes.rows.length > 0) {
-                    const lib = libRes.rows[0];
-                    const nDisp = Math.min(lib.cantidad_total || 1, (lib.cantidad_disponible || 0) + 1);
-                    await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
-                }
-            }
-        }
-    }
-
-    await tursodb.query(
-        `UPDATE biblioteca_prestamos SET estado = 'devuelto', fecha_devolucion_real = ? WHERE id = ?`,
-        [fechaHoy, prestamoId]
-    );
-
-    alert('✅ Devolución registrada correctamente. Ejemplares restaurados o asignados a reservas pendientes (12h de reserva activa).');
-    await cargarMonitoreoPrestamos();
-}
-
-async function renovarPrestamo(prestamoId, fechaDevolucionActual = null) {
+async function abrirModalDevolver(prestamoId) {
     try {
-        const pIdStr = String(prestamoId);
-        const detRes = await tursodb.query(`SELECT libro_id, libro_titulo FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [pIdStr]);
+        const pRes = await tursodb.query(`SELECT * FROM biblioteca_prestamos WHERE id = ?`, [String(prestamoId)]);
+        if (!pRes.rows || pRes.rows.length === 0) return alert('⚠️ Préstamo no encontrado.');
+        const prestamo = pRes.rows[0];
+
+        const detRes = await tursodb.query(`SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [String(prestamoId)]);
         const detalles = detRes.rows || [];
 
-        let libroConDemanda = null;
+        let itemsHtml = '';
+        let activeCount = 0;
+
+        detalles.forEach((d) => {
+            const isDevuelto = d.estado_item === 'devuelto';
+            if (!isDevuelto) activeCount++;
+
+            itemsHtml += `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; background:${isDevuelto ? '#f8fafc' : '#ffffff'};">
+                    <div style="display:flex; align-items:center; gap:12px; flex:1;">
+                        <input type="checkbox" class="chk-devolver-item" value="${d.id}" ${isDevuelto ? 'disabled' : 'checked'} style="width:18px; height:18px; cursor:pointer;">
+                        <div>
+                            <span class="book-code-chip ${isDevuelto ? 'devuelto' : ''}">${escapeHtml(d.libro_codigo)}</span>
+                            <strong style="font-size:14px; color:#1e293b;">${escapeHtml(d.libro_titulo)}</strong>
+                        </div>
+                    </div>
+                    <div>
+                        ${isDevuelto 
+                            ? `<span class="badge badge-success">✓ Devuelto (${formatearFechaHora(d.fecha_devolucion_item)})</span>` 
+                            : `<span class="badge badge-warning">En Préstamo</span>`}
+                    </div>
+                </div>
+            `;
+        });
+
+        const modalHtml = `
+            <div id="modal-devolucion-overlay" class="modal-overlay">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>↩️ Devolución de Ejemplares</h3>
+                        <button class="modal-close-btn" onclick="cerrarModalDevolucion()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="background:#f1f5f9; padding:12px 15px; border-radius:8px; margin-bottom:15px; font-size:13px; color:#334155;">
+                            <strong>👤 Usuario:</strong> ${escapeHtml(prestamo.persona_nombre)} (CI: ${escapeHtml(prestamo.persona_ci)})<br>
+                            <strong>📅 Préstamo realizado:</strong> ${formatearFechaHora(prestamo.fecha_prestamo)} | <strong>Límite actual:</strong> ${formatearFechaHora(prestamo.fecha_devolucion_prevista)}
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <label style="font-weight:bold; font-size:13px; color:#475569;">Selecciona los libros que se están devolviendo:</label>
+                            ${activeCount > 1 ? `
+                                <div style="display:flex; gap:6px;">
+                                    <button type="button" class="btn-secondary" style="padding:3px 8px; font-size:11px;" onclick="toggleTodosDevolver(true)">Marcar Todos</button>
+                                    <button type="button" class="btn-secondary" style="padding:3px 8px; font-size:11px;" onclick="toggleTodosDevolver(false)">Desmarcar</button>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <div id="lista-devolucion-items">
+                            ${itemsHtml}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-secondary" onclick="cerrarModalDevolucion()">Cancelar</button>
+                        <button class="btn-success" onclick="procesarDevolucionSeleccionados('${prestamo.id}')" ${activeCount === 0 ? 'disabled' : ''}>↩️ Confirmar Devolución</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const existing = document.getElementById('modal-devolucion-overlay');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } catch (err) {
+        console.error('Error al abrir modal de devolución:', err);
+        alert('❌ Error al cargar detalles del préstamo: ' + err.message);
+    }
+}
+
+function cerrarModalDevolucion() {
+    const el = document.getElementById('modal-devolucion-overlay');
+    if (el) el.remove();
+}
+
+function toggleTodosDevolver(check) {
+    const checkboxes = document.querySelectorAll('.chk-devolver-item:not([disabled])');
+    checkboxes.forEach(cb => cb.checked = check);
+}
+
+async function procesarDevolucionSeleccionados(prestamoId) {
+    const checkboxes = document.querySelectorAll('.chk-devolver-item:checked:not([disabled])');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+
+    if (selectedIds.length === 0) {
+        alert('⚠️ Por favor selecciona al menos un libro para devolver.');
+        return;
+    }
+
+    try {
+        const fechaHoy = new Date().toISOString();
+
+        const detRes = await tursodb.query(
+            `SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`,
+            [String(prestamoId)]
+        );
+        const detalles = detRes.rows || [];
+
         for (const d of detalles) {
-            const resCheck = await tursodb.query(
-                `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
-                [d.libro_id]
-            );
-            if (resCheck.rows && resCheck.rows.length > 0 && resCheck.rows[0].cant > 0) {
-                libroConDemanda = d.libro_titulo;
-                break;
+            if (selectedIds.includes(d.id) && d.estado_item === 'prestado') {
+                await tursodb.query(
+                    `UPDATE biblioteca_prestamo_detalles SET estado_item = 'devuelto', fecha_devolucion_item = ? WHERE id = ?`,
+                    [fechaHoy, d.id]
+                );
+
+                // Verificar si hay reservas pendientes para este libro
+                const resPend = await tursodb.query(
+                    `SELECT * FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente' AND (ejemplar_id IS NULL OR ejemplar_id = '') ORDER BY created_at ASC LIMIT 1`,
+                    [d.libro_id]
+                );
+
+                if (resPend.rows && resPend.rows.length > 0) {
+                    const resAsignada = resPend.rows[0];
+                    const exp12h = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+
+                    await tursodb.query(
+                        `UPDATE biblioteca_reservas SET ejemplar_id = ?, fecha_expiracion = ? WHERE id = ?`,
+                        [d.ejemplar_id, exp12h, resAsignada.id]
+                    );
+
+                    if (d.ejemplar_id) {
+                        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'reservado' WHERE id = ?`, [d.ejemplar_id]);
+                    }
+                } else {
+                    if (d.ejemplar_id) {
+                        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ?`, [d.ejemplar_id]);
+                    }
+                    const libRes = await tursodb.query(`SELECT cantidad_total, cantidad_disponible FROM biblioteca_libros WHERE id = ?`, [d.libro_id]);
+                    if (libRes.rows && libRes.rows.length > 0) {
+                        const lib = libRes.rows[0];
+                        const nDisp = Math.min(lib.cantidad_total || 1, (lib.cantidad_disponible || 0) + 1);
+                        await tursodb.query(`UPDATE biblioteca_libros SET cantidad_disponible = ? WHERE id = ?`, [nDisp, d.libro_id]);
+                    }
+                }
             }
         }
 
-        if (libroConDemanda) {
-            alert(`⚠️ NO SE PUEDE RENOVAR EL PRÉSTAMO:\nEl libro "${libroConDemanda}" tiene reservas pendientes por otros usuarios.\nPor políticas de biblioteca, el libro debe ser devuelto.`);
-            return;
+        const checkRest = await tursodb.query(
+            `SELECT COUNT(*) as prestadosCount FROM biblioteca_prestamo_detalles WHERE prestamo_id = ? AND estado_item = 'prestado'`,
+            [String(prestamoId)]
+        );
+
+        const prestadosCount = checkRest.rows[0]?.prestadosCount || 0;
+
+        if (prestadosCount === 0) {
+            await tursodb.query(
+                `UPDATE biblioteca_prestamos SET estado = 'devuelto', fecha_devolucion_real = ? WHERE id = ?`,
+                [fechaHoy, String(prestamoId)]
+            );
+            alert(`✅ Devolución completa registrada.\nTodos los libros del préstamo han sido devueltos.`);
+        } else {
+            alert(`✅ Devolución parcial registrada.\nSe devolvieron ${selectedIds.length} libro(s). Quedan ${prestadosCount} libro(s) pendientes en este préstamo.`);
         }
 
-        // Obtener la fecha de devolución prevista actual del préstamo
+        cerrarModalDevolucion();
+        await cargarMonitoreoPrestamos();
+    } catch (err) {
+        console.error('Error al procesar devolución:', err);
+        alert('❌ Error al procesar la devolución: ' + err.message);
+    }
+}
+
+async function devolverPrestamoCompleto(prestamoId) {
+    await abrirModalDevolver(prestamoId);
+}
+
+// ---------- RENOVACIÓN DE EJEMPLARES INDIVIDUALES ----------
+
+async function abrirModalRenovar(prestamoId) {
+    try {
+        const pRes = await tursodb.query(`SELECT * FROM biblioteca_prestamos WHERE id = ?`, [String(prestamoId)]);
+        if (!pRes.rows || pRes.rows.length === 0) return alert('⚠️ Préstamo no encontrado.');
+        const prestamo = pRes.rows[0];
+
+        const detRes = await tursodb.query(`SELECT * FROM biblioteca_prestamo_detalles WHERE prestamo_id = ?`, [String(prestamoId)]);
+        const detalles = detRes.rows || [];
+
+        let itemsHtml = '';
+        let numRenovables = 0;
+
+        for (const d of detalles) {
+            const isDevuelto = d.estado_item === 'devuelto';
+            let tieneReserva = false;
+
+            if (!isDevuelto) {
+                const resCheck = await tursodb.query(
+                    `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE libro_id = ? AND estado = 'pendiente'`,
+                    [d.libro_id]
+                );
+                if (resCheck.rows && resCheck.rows[0]?.cant > 0) {
+                    tieneReserva = true;
+                } else {
+                    numRenovables++;
+                }
+            }
+
+            itemsHtml += `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:12px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; background:${isDevuelto || tieneReserva ? '#f8fafc' : '#ffffff'};">
+                    <div style="display:flex; align-items:center; gap:12px; flex:1;">
+                        <input type="checkbox" class="chk-renovar-item" value="${d.id}" ${isDevuelto || tieneReserva ? 'disabled' : 'checked'} style="width:18px; height:18px; cursor:pointer;">
+                        <div>
+                            <span class="book-code-chip ${isDevuelto ? 'devuelto' : ''}">${escapeHtml(d.libro_codigo)}</span>
+                            <strong style="font-size:14px; color:#1e293b;">${escapeHtml(d.libro_titulo)}</strong>
+                        </div>
+                    </div>
+                    <div>
+                        ${isDevuelto 
+                            ? `<span class="badge badge-success">✓ Devuelto</span>` 
+                            : tieneReserva 
+                                ? `<span class="badge badge-danger" title="No renovable por reservas pendientes de otros usuarios">⚠️ Reservado (No renovable)</span>` 
+                                : `<span class="badge badge-info">Renovable (+70h)</span>`}
+                    </div>
+                </div>
+            `;
+        }
+
+        const modalHtml = `
+            <div id="modal-renovacion-overlay" class="modal-overlay">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>🔄 Renovación de Ejemplares (+70 horas hábiles / 3 días hábiles)</h3>
+                        <button class="modal-close-btn" onclick="cerrarModalRenovacion()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="background:#f1f5f9; padding:12px 15px; border-radius:8px; margin-bottom:15px; font-size:13px; color:#334155;">
+                            <strong>👤 Usuario:</strong> ${escapeHtml(prestamo.persona_nombre)} (CI: ${escapeHtml(prestamo.persona_ci)})<br>
+                            <strong>📅 Límite Actual de Devolución:</strong> ${formatearFechaHora(prestamo.fecha_devolucion_prevista)}
+                        </div>
+
+                        <div style="margin-bottom:10px;">
+                            <label style="font-weight:bold; font-size:13px; color:#475569;">Selecciona los libros que deseas renovar:</label>
+                        </div>
+
+                        <div id="lista-renovacion-items">
+                            ${itemsHtml}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-secondary" onclick="cerrarModalRenovacion()">Cancelar</button>
+                        <button class="btn-info" onclick="procesarRenovacionSeleccionados('${prestamo.id}', '${prestamo.fecha_devolucion_prevista}')" ${numRenovables === 0 ? 'disabled' : ''}>🔄 Confirmar Renovación</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const existing = document.getElementById('modal-renovacion-overlay');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } catch (err) {
+        console.error('Error al abrir modal de renovación:', err);
+        alert('❌ Error al cargar detalles para la renovación: ' + err.message);
+    }
+}
+
+function cerrarModalRenovacion() {
+    const el = document.getElementById('modal-renovacion-overlay');
+    if (el) el.remove();
+}
+
+async function procesarRenovacionSeleccionados(prestamoId, fechaDevolucionActual) {
+    const checkboxes = document.querySelectorAll('.chk-renovar-item:checked:not([disabled])');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+
+    if (selectedIds.length === 0) {
+        alert('⚠️ Por favor selecciona al menos un libro para renovar.');
+        return;
+    }
+
+    try {
         let fechaBase = new Date();
         if (fechaDevolucionActual && fechaDevolucionActual !== 'undefined' && fechaDevolucionActual !== 'null') {
             fechaBase = parseFecha(fechaDevolucionActual);
         } else {
-            const pRes = await tursodb.query(`SELECT fecha_devolucion_prevista FROM biblioteca_prestamos WHERE id = ?`, [pIdStr]);
+            const pRes = await tursodb.query(`SELECT fecha_devolucion_prevista FROM biblioteca_prestamos WHERE id = ?`, [String(prestamoId)]);
             if (pRes.rows && pRes.rows.length > 0 && pRes.rows[0].fecha_devolucion_prevista) {
                 fechaBase = parseFecha(pRes.rows[0].fecha_devolucion_prevista);
             }
         }
 
         const nuevaFecha = calcularFechaDevolucion(fechaBase, 70);
+
         await tursodb.query(
             `UPDATE biblioteca_prestamos SET fecha_devolucion_prevista = ? WHERE id = ?`,
-            [nuevaFecha, pIdStr]
+            [nuevaFecha, String(prestamoId)]
         );
 
-        alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nSe añadieron 70 horas hábiles adicionales (3 días hábiles).\nLa nueva fecha límite de devolución es: ${formatearFechaHora(nuevaFecha)}`);
-        await cargarMonitoreoPrestamos();
+        alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nSe renovaron ${selectedIds.length} libro(s) por 70 horas hábiles (3 días hábiles adicionales).\nLa nueva fecha límite de devolución es: ${formatearFechaHora(nuevaFecha)}`);
+
+        cerrarModalRenovacion();
+        if (typeof cargarMonitoreoPrestamos === 'function') await cargarMonitoreoPrestamos();
     } catch (err) {
-        console.error("Error al renovar préstamo:", err);
-        alert("❌ Error al procesar la renovación: " + err.message);
+        console.error('Error al procesar renovación:', err);
+        alert('❌ Error al renovar: ' + err.message);
     }
+}
+
+async function renovarPrestamo(prestamoId, fechaDevolucionActual = null) {
+    await abrirModalRenovar(prestamoId);
 }
 
 // ---------- 3. CATÁLOGO E INVENTARIO DE LIBROS ----------

@@ -596,9 +596,13 @@ async function cargarMisReservas() {
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666;">Cargando mis reservas...</td></tr>';
 
     const res = await tursodb.query(
-        `SELECT r.*, l.titulo as libro_titulo, l.area_cod, l.libro_num 
+        `SELECT r.*, 
+                l.titulo as libro_titulo, 
+                l.area_cod, l.libro_num,
+                e.codigo_ejemplar as ejem_codigo
          FROM biblioteca_reservas r
          LEFT JOIN biblioteca_libros l ON r.libro_id = l.id
+         LEFT JOIN biblioteca_ejemplares e ON r.ejemplar_id = e.id
          WHERE r.persona_ci = ?
          ORDER BY r.created_at DESC`,
         [currentUser.ci]
@@ -634,10 +638,15 @@ async function cargarMisReservas() {
             estadoBadgeHtml = '<span class="badge badge-secondary">CANCELADA</span>';
         }
 
+        // Usar el codigo real del ejemplar; si no hay, reconstruir desde area_cod+libro_num
+        const codigoMostrar = r.ejem_codigo
+            ? r.ejem_codigo
+            : (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '?');
+
         return `
             <tr>
                 <td>${formatearFechaHora(r.fecha_reserva)}</td>
-                <td><strong>[${pad2(r.area_cod || '')}${pad2(r.libro_num || '')}]</strong> ${r.libro_titulo || 'Libro'}</td>
+                <td><strong>[${codigoMostrar}]</strong> ${r.libro_titulo || 'Libro'}</td>
                 <td>${estadoBadgeHtml}</td>
                 <td>
                     ${esPendiente ? `<button onclick="cancelarReservaUsuario('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">Cancelar</button>` : '-'}

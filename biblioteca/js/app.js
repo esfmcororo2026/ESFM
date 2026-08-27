@@ -1088,12 +1088,16 @@ async function buscarLibroParaCarrito() {
     let rowsProyectos = proyRes.rows || [];
     let rows = [...rowsLibros, ...rowsProyectos];
 
+    cartSearchResultsMap = {};
+
     if (rows.length === 0) {
         resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron libros ni proyectos. Intenta por código (ej: <b>010101</b> o <b>01201401</b>) o palabras del título.</p>';
         return;
     }
 
     resultsEl.innerHTML = rows.map(item => {
+        cartSearchResultsMap[item.ejem_id] = item;
+
         const enCarrito = cartItems.some(c => c.ejemId === item.ejem_id);
         const estaDisponible = item.ejem_estado === 'disponible';
         const disabled = !estaDisponible || enCarrito;
@@ -1104,11 +1108,11 @@ async function buscarLibroParaCarrito() {
 
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #eee; background:#fff;">
-                <div style="font-size:13px;">
-                    <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong> ${badgeTipo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
-                    <small style="color:#666;">${item.tipo_item === 'proyecto' ? 'Cod_Esp' : 'Área'}: ${item.area_cod || '-'} | Nº: ${item.libro_num || '-'} | Autor(es): ${item.autor || 'N/A'}</small>
+                <div style="font-size:13px; flex:1; padding-right:10px;">
+                    <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> <strong>${safeEscape(item.titulo)}</strong> ${badgeTipo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
+                    <small style="color:#666;">${item.tipo_item === 'proyecto' ? 'Cod_Esp' : 'Área'}: ${item.area_cod || '-'} | Nº: ${item.libro_num || '-'} | Autor(es): ${safeEscape(item.autor || 'N/A')}</small>
                 </div>
-                <button onclick="agregarAlCarrito('${item.ejem_id}', '${item.libro_id}', '${escapeHtml(item.codigo_ejemplar)}', '${escapeHtml(item.titulo)} (#${item.ejemplar_num})', '${item.tipo_item}')" 
+                <button onclick="agregarAlCarritoId('${item.ejem_id}')" 
                         class="${disabled ? 'btn-secondary' : 'btn-success'}" 
                         style="padding:5px 10px; font-size:12px;" ${disabled ? 'disabled' : ''}>
                     ${btnText}
@@ -1118,9 +1122,37 @@ async function buscarLibroParaCarrito() {
     }).join('');
 }
 
-function escapeHtml(str) {
+let cartSearchResultsMap = {};
+
+function safeEscape(str) {
     if (!str) return '';
-    return str.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function escapeHtml(str) {
+    return safeEscape(str);
+}
+
+function agregarAlCarritoId(ejemId) {
+    const item = cartSearchResultsMap[ejemId];
+    if (!item) return;
+    if (cartItems.some(i => i.ejemId === item.ejem_id)) return;
+
+    cartItems.push({
+        ejemId: item.ejem_id,
+        libroId: item.libro_id,
+        codigo: item.codigo_ejemplar,
+        titulo: `${item.titulo} (#${item.ejemplar_num})`,
+        tipoItem: item.tipo_item || 'libro'
+    });
+
+    actualizarVistaCarrito();
+    buscarLibroParaCarrito();
 }
 
 function agregarAlCarrito(ejemId, libroId, codigo, titulo, tipoItem = 'libro') {

@@ -527,7 +527,10 @@ async function buscarLibrosPortal() {
 
     const proyRes = await tursodb.query(proyQuerySql, proyParams);
     const proyRows = proyRes.rows || [];
-    let rows = [...rowsLibros, ...proyRows];
+    let rowsProyectos = proyRes.rows || [];
+    let rows = [...rowsLibros, ...rowsProyectos];
+
+    portalSearchResultsMap = {};
 
     if (rows.length === 0) {
         resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic; text-align:center; padding:15px;">No se encontraron libros ni proyectos con esa búsqueda.</p>';
@@ -535,6 +538,8 @@ async function buscarLibrosPortal() {
     }
 
     resultsEl.innerHTML = rows.map(item => {
+        portalSearchResultsMap[item.ejem_id] = item;
+
         const estaDisponible = item.ejem_estado === 'disponible';
         const estaPrestado = item.ejem_estado === 'prestado';
         const estaReservado = item.ejem_estado === 'reservado';
@@ -546,7 +551,7 @@ async function buscarLibrosPortal() {
 
         if (estaDisponible) {
             accionesHtml = `
-                <button onclick="solicitarReservaConExpiracion('${item.libro_id}', '${item.ejem_id}', '${escapeHtml(item.titulo)}', '${escapeHtml(item.codigo_ejemplar)}', true)" 
+                <button onclick="solicitarReservaPorId('${item.ejem_id}', true)" 
                         class="btn-info" style="padding:7px 14px; font-size:13px; font-weight:bold;">
                     🔖 Reservar (12h)
                 </button>
@@ -554,7 +559,7 @@ async function buscarLibrosPortal() {
         } else if (estaPrestado) {
             accionesHtml = `
                 <span class="badge badge-danger" style="margin-right:8px;">PRESTADO</span>
-                <button onclick="solicitarReservaConExpiracion('${item.libro_id}', '${item.ejem_id}', '${escapeHtml(item.titulo)}', '${escapeHtml(item.codigo_ejemplar)}', false)" 
+                <button onclick="solicitarReservaPorId('${item.ejem_id}', false)" 
                         class="btn-info" style="padding:7px 14px; font-size:13px; font-weight:bold;">
                     🔖 Reservar
                 </button>
@@ -566,8 +571,8 @@ async function buscarLibrosPortal() {
         return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee; background:#fff;">
                 <div style="font-size:13px; flex:1; padding-right:12px;">
-                    <strong style="color:#0d6efd;">[${item.codigo_ejemplar}]</strong> <strong>${item.titulo}</strong> ${badgeTipo}<br>
-                    <small style="color:#666;">Autor(es): ${item.autor || 'N/A'} | Ejemplar #${item.ejemplar_num}</small>
+                    <strong style="color:#0d6efd;">[${item.codigo_ejemplar}]</strong> <strong>${safeEscapePortal(item.titulo)}</strong> ${badgeTipo}<br>
+                    <small style="color:#666;">Autor(es): ${safeEscapePortal(item.autor || 'N/A')} | Ejemplar #${item.ejemplar_num}</small>
                 </div>
                 <div>
                     ${accionesHtml}
@@ -575,6 +580,24 @@ async function buscarLibrosPortal() {
             </div>
         `;
     }).join('');
+}
+
+let portalSearchResultsMap = {};
+
+function safeEscapePortal(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+async function solicitarReservaPorId(ejemId, esDisponible) {
+    const item = portalSearchResultsMap[ejemId];
+    if (!item) return;
+    await solicitarReservaConExpiracion(item.libro_id, item.ejem_id, item.titulo, item.codigo_ejemplar, esDisponible);
 }
 
 async function solicitarReservaConExpiracion(libroId, ejemId, titulo, codigoEjemplar, esDisponible) {

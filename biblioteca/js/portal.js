@@ -484,9 +484,9 @@ async function solicitarReservaConExpiracion(libroId, ejemId, titulo, codigoEjem
     }
 
     await tursodb.query(
-        `INSERT INTO biblioteca_reservas (id, libro_id, ejemplar_id, persona_ci, persona_nombre, persona_tipo, estado, fecha_reserva, fecha_expiracion)
-         VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
-        [reservaId, libroId, ejemId, currentUser.ci, currentUser.nombre, currentUser.tipo, fechaReserva, fechaExpiracion]
+        `INSERT INTO biblioteca_reservas (id, libro_id, ejemplar_id, libro_titulo, libro_codigo, persona_ci, persona_nombre, persona_tipo, estado, fecha_reserva, fecha_expiracion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
+        [reservaId, libroId, ejemId, titulo, codigoEjemplar, currentUser.ci, currentUser.nombre, currentUser.tipo, fechaReserva, fechaExpiracion]
     );
 
     if (esDisponible) {
@@ -597,7 +597,7 @@ async function cargarMisReservas() {
 
     const res = await tursodb.query(
         `SELECT r.*, 
-                l.titulo as libro_titulo, 
+                l.titulo as libro_titulo_join, 
                 l.area_cod, l.libro_num,
                 e.codigo_ejemplar as ejem_codigo
          FROM biblioteca_reservas r
@@ -638,15 +638,16 @@ async function cargarMisReservas() {
             estadoBadgeHtml = '<span class="badge badge-secondary">CANCELADA</span>';
         }
 
-        // Usar el codigo real del ejemplar; si no hay, reconstruir desde area_cod+libro_num
-        const codigoMostrar = r.ejem_codigo
-            ? r.ejem_codigo
-            : (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '?');
+        // Prioridad: columnas guardadas en la reserva > JOIN con libros > JOIN con ejemplares > fallback
+        const tituloMostrar = r.libro_titulo || r.libro_titulo_join || 'Sin título';
+        const codigoMostrar = r.libro_codigo || r.ejem_codigo
+            ? (r.libro_codigo || r.ejem_codigo)
+            : (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '—');
 
         return `
             <tr>
                 <td>${formatearFechaHora(r.fecha_reserva)}</td>
-                <td><strong>[${codigoMostrar}]</strong> ${r.libro_titulo || 'Libro'}</td>
+                <td><strong style="color:#0d6efd;">[${codigoMostrar}]</strong><br><span style="font-size:13px;">${tituloMostrar}</span></td>
                 <td>${estadoBadgeHtml}</td>
                 <td>
                     ${esPendiente ? `<button onclick="cancelarReservaUsuario('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">Cancelar</button>` : '-'}

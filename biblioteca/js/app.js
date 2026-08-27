@@ -116,6 +116,8 @@ async function crearTablasBiblioteca() {
     `);
     try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN ejemplar_id TEXT`); } catch (e) {}
     try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN fecha_expiracion TEXT`); } catch (e) {}
+    try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN libro_titulo TEXT`); } catch (e) {}
+    try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN libro_codigo TEXT`); } catch (e) {}
 
     await tursodb.query(`
         CREATE TABLE IF NOT EXISTS biblioteca_proyectos (

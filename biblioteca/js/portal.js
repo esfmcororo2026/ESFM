@@ -249,7 +249,7 @@ function cerrarSesionUsuario() {
 // ---------- 2. NAVEGACIÓN POR PESTAÑAS EN EL PORTAL DE USUARIO ----------
 
 function switchPortalTab(tabName) {
-    const tabs = ['prestamos', 'reservas', 'catalogo'];
+    const tabs = ['prestamos', 'reservas', 'catalogo', 'proyectos'];
     tabs.forEach(t => {
         const btn = document.getElementById(`tab-btn-${t}`);
         const content = document.getElementById(`portal-tab-${t}`);
@@ -263,6 +263,7 @@ function switchPortalTab(tabName) {
         cargarMisReservas();
     }
     if (tabName === 'catalogo') cargarCatalogoPortal();
+    if (tabName === 'proyectos') cargarCatalogoProyectosPortal();
 }
 
 // ---------- 3. VISTA DE MIS PRÉSTAMOS E HISTORIAL ----------
@@ -812,10 +813,34 @@ const PORTAL_AREAS_DEF = [
     { cod: "29", nombre: "OBRAS GENERALES", icon: "📑" }
 ];
 
+const PORTAL_PROYECTOS_AREAS_DEF = [
+    { cod: "01", nombre: "EDUCACIÓN PRIMARIA COMUNITARIA VOCACIONAL", icon: "🎒" },
+    { cod: "02", nombre: "EDUCACIÓN INICIAL EN FAMILIA COMUNITARIA", icon: "🧸" },
+    { cod: "03", nombre: "ARTES PLÁSTICAS Y VISUALES", icon: "🎨" },
+    { cod: "04", nombre: "MATEMÁTICA", icon: "📐" },
+    { cod: "05", nombre: "COMUNICACIÓN Y LENGUAJES: LENGUA EXTRANJERA (INGLÉS)", icon: "🔤" },
+    { cod: "06", nombre: "COMUNICACIÓN Y LENGUAJES: LENGUA CASTELLANA", icon: "📖" },
+    { cod: "07", nombre: "CIENCIAS NATURALES: FÍSICA – QUÍMICA", icon: "🧪" },
+    { cod: "08", nombre: "CIENCIAS SOCIALES", icon: "🌍" },
+    { cod: "09", nombre: "CIENCIAS NATURALES: BIOLOGÍA – GEOGRAFÍA", icon: "🌿" },
+    { cod: "10", nombre: "EDUCACIÓN MUSICAL", icon: "🎵" },
+    { cod: "11", nombre: "EDUCACIÓN FÍSICA Y DEPORTES", icon: "⚽" },
+    { cod: "12", nombre: "VALORES, ESPIRITUALIDAD Y RELIGIONES", icon: "🕊️" },
+    { cod: "13", nombre: "EDUCACIÓN ESPECIAL PARA PERSONAS CON DISCAPACIDAD", icon: "♿" },
+    { cod: "14", nombre: "COSMOVISIONES, FILOSOFÍAS Y SICOLOGÍA", icon: "🧠" }
+];
+
 let _catalogoLibros = [];
 let _catalogoEjemplares = {};
 let _portalAreaPaginasState = {};
 let _portalAreaExpandidaState = {};
+
+// Estado del acordeón de proyectos del portal
+let _portalCatalogoProyectos = [];
+let _portalCatalogoProyectosEjemplaresMap = {};
+let _portalProyAreaExpandidaState = {};
+let _portalProyGestionExpandidaState = {};
+let _portalProyModalidadExpandidaState = {};
 
 async function cargarCatalogoPortal() {
     const container = document.getElementById('catalogo-portal-areas-container');
@@ -1045,4 +1070,273 @@ function filtrarCatalogoPortal() {
         return ejems.some(e => String(e.codigo_ejemplar || '').toLowerCase().includes(q));
     });
     renderCatalogoPortalPorAreas(filtrados, true);
+}
+
+// ---------- CATÁLOGO DE PROYECTOS EN EL PORTAL (ÁREA > GESTIÓN > MODALIDAD) ----------
+
+async function cargarCatalogoProyectosPortal() {
+    const container = document.getElementById('proyectos-portal-accordion-container');
+    if (!container) return;
+
+    container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo de proyectos...</p>';
+
+    try {
+        const res = await tursodb.query(`SELECT * FROM biblioteca_proyectos ORDER BY CAST(cod_esp AS INTEGER) ASC, gestion DESC, CAST(proyecto_num AS INTEGER) ASC`);
+        _portalCatalogoProyectos = res.rows || [];
+
+        const ejemRes = await tursodb.query(`SELECT proyecto_id, codigo_ejemplar, estado, ejemplar_num FROM biblioteca_proyectos_ejemplares ORDER BY ejemplar_num ASC`);
+        _portalCatalogoProyectosEjemplaresMap = {};
+        (ejemRes.rows || []).forEach(e => {
+            if (!_portalCatalogoProyectosEjemplaresMap[e.proyecto_id]) _portalCatalogoProyectosEjemplaresMap[e.proyecto_id] = [];
+            _portalCatalogoProyectosEjemplaresMap[e.proyecto_id].push(e);
+        });
+
+        filtrarCatalogoProyectosPortal();
+    } catch (err) {
+        container.innerHTML = '<p style="text-align:center; color:#dc3545; padding:30px;">❌ Error al cargar el catálogo de proyectos.</p>';
+    }
+}
+
+function filtrarCatalogoProyectosPortal() {
+    const q = (document.getElementById('proy-portal-search-input')?.value || '').trim().toLowerCase();
+    const stGestion = document.getElementById('proy-portal-filter-gestion')?.value || '';
+    const isFiltered = Boolean(q || stGestion);
+
+    const filtrados = _portalCatalogoProyectos.filter(p => {
+        const matchQ = !q || (
+            p.codigo_proyecto.toLowerCase().includes(q) ||
+            p.titulo.toLowerCase().includes(q) ||
+            (p.autores || '').toLowerCase().includes(q) ||
+            (p.especialidad || '').toLowerCase().includes(q) ||
+            (p.modalidad || '').toLowerCase().includes(q)
+        );
+        const matchGestion = !stGestion || String(p.gestion) === stGestion;
+        return matchQ && matchGestion;
+    });
+
+    renderCatalogoProyectosPortalAccordion(filtrados, isFiltered);
+}
+
+function renderCatalogoProyectosPortalAccordion(listaProyectos, isFiltered = false) {
+    const container = document.getElementById('proyectos-portal-accordion-container');
+    if (!container) return;
+
+    if (!listaProyectos || listaProyectos.length === 0) {
+        container.innerHTML = '<p style="text-align:center; color:#888; padding:30px; font-style:italic;">No se encontraron proyectos que coincidan con los filtros seleccionados.</p>';
+        return;
+    }
+
+    // 1. Agrupar por Especialidad (01 al 14, OTRAS)
+    const proyectosPorArea = {};
+    PORTAL_PROYECTOS_AREAS_DEF.forEach(a => { proyectosPorArea[a.cod] = []; });
+    proyectosPorArea['OTRAS'] = [];
+
+    listaProyectos.forEach(p => {
+        const areaCodPad = String(p.cod_esp || '').trim().padStart(2, '0');
+        if (proyectosPorArea[areaCodPad]) {
+            proyectosPorArea[areaCodPad].push(p);
+        } else {
+            proyectosPorArea['OTRAS'].push(p);
+        }
+    });
+
+    let areasParaMostrar = [...PORTAL_PROYECTOS_AREAS_DEF];
+    if (proyectosPorArea['OTRAS'].length > 0) {
+        areasParaMostrar.push({ cod: 'OTRAS', nombre: 'Otras Especialidades / Sin Clasificar', icon: '📂' });
+    }
+
+    const html = areasParaMostrar.map(area => {
+        const proysArea = proyectosPorArea[area.cod] || [];
+        const totalProyArea = proysArea.length;
+
+        if (isFiltered && totalProyArea === 0) return '';
+
+        const estaAreaExpandida = isFiltered ? (totalProyArea > 0) : (_portalProyAreaExpandidaState[area.cod] === true);
+
+        // 2. Agrupar por Gestión dentro del Área
+        let gestionesHtml = '';
+        if (estaAreaExpandida) {
+            if (totalProyArea === 0) {
+                gestionesHtml = `<div style="padding:15px; text-align:center; color:#888; font-style:italic;">No hay proyectos registrados en esta especialidad.</div>`;
+            } else {
+                const proysPorGestion = {};
+                proysArea.forEach(p => {
+                    const g = String(p.gestion || 'Sin Gestión').trim();
+                    if (!proysPorGestion[g]) proysPorGestion[g] = [];
+                    proysPorGestion[g].push(p);
+                });
+
+                const gestionesOrdenadas = Object.keys(proysPorGestion).sort((a, b) => b.localeCompare(a));
+
+                gestionesHtml = gestionesOrdenadas.map(g => {
+                    const proysGestion = proysPorGestion[g];
+                    const gKey = `${area.cod}_${g}`;
+                    const estaGestionExpandida = isFiltered ? true : (_portalProyGestionExpandidaState[gKey] === true);
+
+                    // 3. Agrupar por Modalidad dentro de la Gestión
+                    let modalidadesHtml = '';
+                    if (estaGestionExpandida) {
+                        const proysPorMod = {};
+                        proysGestion.forEach(p => {
+                            const m = String(p.modalidad || 'Sin Modalidad Especificada').trim();
+                            if (!proysPorMod[m]) proysPorMod[m] = [];
+                            proysPorMod[m].push(p);
+                        });
+
+                        const modalidadesOrdenadas = Object.keys(proysPorMod).sort();
+
+                        modalidadesHtml = modalidadesOrdenadas.map(modNombre => {
+                            const proysMod = proysPorMod[modNombre];
+                            const modSanitizedKey = modNombre.replace(/[^a-zA-Z0-9]/g, '_');
+                            const modKey = `${area.cod}_${g}_${modSanitizedKey}`;
+                            const estaModExpandida = isFiltered ? true : (_portalProyModalidadExpandidaState[modKey] === true);
+
+                            // 4. Renderizar tabla de proyectos
+                            let rowsHtml = '';
+                            if (estaModExpandida) {
+                                rowsHtml = proysMod.map(p => {
+                                    const total = p.cantidad_total || 1;
+                                    const disp = p.cantidad_disponible !== null ? p.cantidad_disponible : total;
+                                    const ejems = _portalCatalogoProyectosEjemplaresMap[p.id] || [];
+
+                                    const codigosList = ejems.map(e => {
+                                        const st = (e.estado || 'disponible').toLowerCase();
+                                        let bg = '#d4edda'; let color = '#155724'; let border = '#c3e6cb'; let labelEstado = 'Disponible';
+                                        if (st === 'prestado') { bg = '#f8d7da'; color = '#721c24'; border = '#f5c6cb'; labelEstado = 'Prestado'; }
+                                        else if (st === 'reservado' || st === 'reservada') { bg = '#e2e3e5'; color = '#383d41'; border = '#d6d8db'; labelEstado = 'Reservado'; }
+                                        return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:11px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
+                                    }).join('');
+
+                                    return `
+                                        <tr>
+                                            <td>${codigosList || `<span style="font-family:monospace; font-weight:bold; font-size:12px;">${p.codigo_proyecto}</span>`}</td>
+                                            <td><strong>${escapeHtml(p.titulo)}</strong></td>
+                                            <td style="font-size:12px;">${escapeHtml(p.autores || 'N/A')}</td>
+                                            <td><strong>${disp} / ${total}</strong></td>
+                                            <td><span class="badge badge-secondary" style="font-size:11px;">${p.estado_fisico || 'Bueno'}</span></td>
+                                        </tr>
+                                    `;
+                                }).join('');
+                            }
+
+                            return `
+                                <div id="proy-portal-mod-${modKey}" style="background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:8px; overflow:hidden;">
+                                    <div onclick="togglePortalProyModalidad('${area.cod}', '${g}', '${modSanitizedKey}')"
+                                         style="padding:9px 12px; background:${estaModExpandida ? '#e8f5e9' : '#ffffff'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaModExpandida ? '1px solid #c8e6c9' : 'none'};">
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <strong style="font-size:13px; color:#2e7d32;">🎓 ${escapeHtml(modNombre)}</strong>
+                                            <span class="badge" style="font-size:11px; background:#2e7d32; color:#fff;">${proysMod.length} proyecto(s)</span>
+                                        </div>
+                                        <span style="font-size:13px; color:#2e7d32; font-weight:bold;">${estaModExpandida ? '▲' : '▼'}</span>
+                                    </div>
+                                    ${estaModExpandida ? `
+                                        <div class="table-responsive">
+                                            <table class="bib-table" style="margin-bottom:0; font-size:13px;">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Código Único</th>
+                                                        <th>Título del Proyecto</th>
+                                                        <th>Autores / Equipo</th>
+                                                        <th>Ejem. (Disp/Tot)</th>
+                                                        <th>Estado Físico</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>${rowsHtml}</tbody>
+                                            </table>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('');
+                    }
+
+                    return `
+                        <div id="proy-portal-gest-${area.cod}-${g}" style="background:#fff; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:10px; overflow:hidden;">
+                            <div onclick="togglePortalProyGestion('${area.cod}', '${g}')"
+                                 style="padding:11px 15px; background:${estaGestionExpandida ? '#e0f2fe' : '#ffffff'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaGestionExpandida ? '1px solid #bae6fd' : 'none'};">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <strong style="font-size:14px; color:#0369a1;">📅 Gestión ${g}</strong>
+                                    <span class="badge" style="font-size:11px; background:#0284c7; color:#fff;">${proysGestion.length} proyecto(s)</span>
+                                </div>
+                                <span style="font-size:14px; color:#0369a1; font-weight:bold;">${estaGestionExpandida ? '▲' : '▼'}</span>
+                            </div>
+                            ${estaGestionExpandida ? `
+                                <div style="padding:10px 12px; background:#f8fafc;">
+                                    ${modalidadesHtml}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        return `
+            <div id="proy-portal-area-${area.cod}" style="background:#fff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:12px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+                <div onclick="togglePortalProyArea('${area.cod}')"
+                     style="padding:14px 18px; background:${estaAreaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaAreaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <strong style="font-size:14px; color:#0f172a;">${area.cod !== 'OTRAS' ? area.cod + ' - ' : ''}${area.icon} ${area.nombre}</strong>
+                        <span class="badge badge-info" style="font-size:11px;">${totalProyArea} proyecto(s)</span>
+                    </div>
+                    <span style="font-size:16px; color:#64748b; font-weight:bold;">${estaAreaExpandida ? '▲' : '▼'}</span>
+                </div>
+                ${estaAreaExpandida ? `
+                    <div style="padding:12px 15px; background:#f1f5f9;">
+                        ${gestionesHtml}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function togglePortalProyArea(areaCod) {
+    _portalProyAreaExpandidaState[areaCod] = !_portalProyAreaExpandidaState[areaCod];
+    filtrarCatalogoProyectosPortal();
+    if (_portalProyAreaExpandidaState[areaCod]) {
+        setTimeout(() => {
+            const el = document.getElementById(`proy-portal-area-${areaCod}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
+}
+
+function togglePortalProyGestion(areaCod, gestion) {
+    const key = `${areaCod}_${gestion}`;
+    _portalProyGestionExpandidaState[key] = !_portalProyGestionExpandidaState[key];
+    filtrarCatalogoProyectosPortal();
+    if (_portalProyGestionExpandidaState[key]) {
+        setTimeout(() => {
+            const el = document.getElementById(`proy-portal-gest-${areaCod}-${gestion}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
+}
+
+function togglePortalProyModalidad(areaCod, gestion, modSanitizedKey) {
+    const key = `${areaCod}_${gestion}_${modSanitizedKey}`;
+    _portalProyModalidadExpandidaState[key] = !_portalProyModalidadExpandidaState[key];
+    filtrarCatalogoProyectosPortal();
+    if (_portalProyModalidadExpandidaState[key]) {
+        setTimeout(() => {
+            const el = document.getElementById(`proy-portal-mod-${key}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
+}
+
+function expandirTodasAreasProyectosPortal() {
+    PORTAL_PROYECTOS_AREAS_DEF.forEach(a => { _portalProyAreaExpandidaState[a.cod] = true; });
+    _portalProyAreaExpandidaState['OTRAS'] = true;
+    filtrarCatalogoProyectosPortal();
+}
+
+function colapsarTodasAreasProyectosPortal() {
+    _portalProyAreaExpandidaState = {};
+    _portalProyGestionExpandidaState = {};
+    _portalProyModalidadExpandidaState = {};
+    filtrarCatalogoProyectosPortal();
 }

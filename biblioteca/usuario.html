@@ -194,6 +194,7 @@
             <button class="portal-tab-btn active" id="tab-btn-prestamos" onclick="switchPortalTab('prestamos')">📋 Mis Préstamos</button>
             <button class="portal-tab-btn" id="tab-btn-reservas" onclick="switchPortalTab('reservas')">🔖 Solicitar / Ver Mis Reservas</button>
             <button class="portal-tab-btn" id="tab-btn-catalogo" onclick="switchPortalTab('catalogo')">📚 Catálogo de Libros</button>
+            <button class="portal-tab-btn" id="tab-btn-proyectos" onclick="switchPortalTab('proyectos')">📂 Catálogo de Proyectos</button>
         </div>
 
         <!-- PESTAÑA 1: MIS PRÉSTAMOS -->
@@ -300,10 +301,10 @@
             </div>
 
         </div>
-        <!-- PESTAÑA 4: CATÁLOGO DE LA BIBLIOTECA -->
+        <!-- PESTAÑA 4: CATÁLOGO DE LIBROS DE LA BIBLIOTECA -->
         <div id="portal-tab-catalogo" class="portal-tab-content" style="display:none;">
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:18px;">
-                <h3 style="color:#0f172a; margin:0;">📚 Catálogo de la Biblioteca</h3>
+                <h3 style="color:#0f172a; margin:0;">📚 Catálogo de Libros</h3>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
                     <span style="background:#d4edda; color:#155724; border:1px solid #c3e6cb; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:bold;">● Disponible</span>
                     <span style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:bold;">● Prestado</span>
@@ -317,12 +318,43 @@
             </div>
         </div>
 
+        <!-- PESTAÑA 5: CATÁLOGO DE PROYECTOS DE GRADO / TESIS -->
+        <div id="portal-tab-proyectos" class="portal-tab-content" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
+                <h3 style="color:#0f172a; margin:0;">📂 Catálogo de Proyectos de Grado / Tesis</h3>
+                <div style="display:flex; gap:8px;">
+                    <button onclick="expandirTodasAreasProyectosPortal()" class="btn-secondary" style="padding:6px 12px; font-size:12px;">➕ Expandir Todo</button>
+                    <button onclick="colapsarTodasAreasProyectosPortal()" class="btn-secondary" style="padding:6px 12px; font-size:12px;">➖ Colapsar Todo</button>
+                </div>
+            </div>
+
+            <!-- Buscador y Filtros -->
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <input type="text" id="proy-portal-search-input" oninput="filtrarCatalogoProyectosPortal()" placeholder="Buscar proyecto por código (ej: 01201401), título, modalidad, autores..." style="flex:1; min-width:250px; padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                <select id="proy-portal-filter-gestion" onchange="filtrarCatalogoProyectosPortal()" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                    <option value="">Todas las Gestiones</option>
+                    <option value="2014">Gestión 2014</option>
+                    <option value="2017">Gestión 2017</option>
+                    <option value="2019">Gestión 2019</option>
+                    <option value="2022">Gestión 2022</option>
+                    <option value="2023">Gestión 2023</option>
+                    <option value="2024">Gestión 2024</option>
+                    <option value="2025">Gestión 2025</option>
+                </select>
+            </div>
+
+            <!-- Contenedor dinámico de Áreas > Gestiones > Modalidades de Proyectos del Portal -->
+            <div id="proyectos-portal-accordion-container">
+                <p style="text-align:center; color:#666; padding:30px;">Cargando catálogo de proyectos por especialidades y gestiones...</p>
+            </div>
+        </div>
+
     </div>
 
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../js/tursodb.js"></script>
-<script src="js/portal.js?v=20260827_30"></script>
+<script src="js/portal.js?v=20260901_50"></script>
 </body>
 </html>

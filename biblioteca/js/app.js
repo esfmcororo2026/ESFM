@@ -2410,6 +2410,53 @@ function descargarPlantillaExcel() {
     XLSX.writeFile(wb, "Plantilla_Carga_Libros_ESFM.xlsx");
 }
 
+function descargarPlantillaProyectosExcel() {
+    const dataEjemplo = [
+        {
+            "Cod_Esp": "01",
+            "Nº": "01",
+            "GESTIÓN": "2024",
+            "TÍTULO": "IMPLEMENTACIÓN DE ESTRATEGIAS METODOLÓGICAS PARA EL FORTALECIMIENTO DE LA LECTOESCRITURA",
+            "ESPECIALIDAD": "EDUCACIÓN PRIMARIA COMUNITARIA VOCACIONAL",
+            "MODALIDAD": "PROYECTO SOCIOPRODUCTIVO EDUCATIVO",
+            "AUTORES / INTEGRANTES": "Mamani Choque, Juan Carlos; Quispe Laura, María Elena"
+        },
+        {
+            "Cod_Esp": "01",
+            "Nº": "02",
+            "GESTIÓN": "2024",
+            "TÍTULO": "USO DE MATERIALES DIDÁCTICOS REGIONALIZADOS EN EL APRENDIZAJE DE LAS MATEMÁTICAS",
+            "ESPECIALIDAD": "EDUCACIÓN PRIMARIA COMUNITARIA VOCACIONAL",
+            "MODALIDAD": "PROYECTO SOCIOPRODUCTIVO EDUCATIVO",
+            "AUTORES / INTEGRANTES": "Flores Condori, René; Vargas Gutiérrez, Ana María"
+        },
+        {
+            "Cod_Esp": "03",
+            "Nº": "01",
+            "GESTIÓN": "2023",
+            "TÍTULO": "DESARROLLO DEL PENSAMIENTO LÓGICO MATEMÁTICO MEDIANTE JUEGOS INTERACTIVOS",
+            "ESPECIALIDAD": "MATEMÁTICA",
+            "MODALIDAD": "TRABAJO DE INVESTIGACIÓN",
+            "AUTORES / INTEGRANTES": "Fernández López, Carlos Eduardo"
+        }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(dataEjemplo);
+    ws['!cols'] = [
+        { wch: 10 },
+        { wch: 8 },
+        { wch: 10 },
+        { wch: 60 },
+        { wch: 35 },
+        { wch: 30 },
+        { wch: 45 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Proyectos");
+    XLSX.writeFile(wb, "PROYECTOS_PLANTILLA_EJEMPLO.xlsx");
+}
+
 function procesarArchivoExcel(event) {
     const file = event.target.files[0];
     if (!file) return;

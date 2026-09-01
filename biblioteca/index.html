@@ -356,13 +356,6 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                     </div>
                 </div>
 
-                <!-- Controles de Catálogo: Buscador y Acciones -->
-                <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; align-items:center;">
-                    <input type="text" id="cat-search-input" oninput="filtrarCatalogo()" placeholder="🔍 Buscar por título, autor, o código (ej: 0103)..." style="flex:1; min-width:250px; padding:10px 15px; border:1px solid #ccc; border-radius:8px; font-size:14px;">
-                    <button onclick="expandirTodasAreas()" class="btn-secondary" style="padding:10px 14px; font-size:13px;">📂 Expandir Todas</button>
-                    <button onclick="colapsarTodasAreas()" class="btn-secondary" style="padding:10px 14px; font-size:13px;">📁 Colapsar Todas</button>
-                </div>
-
                 <!-- Contenedor dinámico de Áreas / Secciones de Libros -->
                 <div id="catalogo-areas-container">
                     <p style="text-align:center; color:#666; padding:30px;">Cargando catálogo por áreas...</p>

@@ -1948,19 +1948,17 @@ function renderCatalogoPorAreas(listaLibros, isFiltered = false) {
         }
 
         return `
-            <div style="background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:14px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+            <div style="background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:10px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
                 <div onclick="toggleAreaCatalogo('${area.cod}')" 
-                     style="padding:14px 18px; background:${estaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.2s;">
-                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                        <span style="background:#0284c7; color:#ffffff; font-weight:bold; font-size:12px; padding:3px 8px; border-radius:6px; font-family:monospace;">[COD ${area.cod}]</span>
+                     style="padding:13px 18px; background:${estaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="background:#0284c7; color:#ffffff; font-weight:bold; font-size:11px; padding:2px 7px; border-radius:5px; font-family:monospace; white-space:nowrap;">${area.cod}</span>
                         <strong style="font-size:15px; color:#0f172a;">${area.icon} ${area.nombre}</strong>
-                        <span class="badge ${totalLibros > 0 ? 'badge-info' : 'badge-secondary'}" style="font-size:12px; font-weight:bold;">
-                            ${totalLibros} libro(s) • ${dispEjemplaresArea}/${totalEjemplaresArea} ejem. disp.
+                        <span class="badge ${totalLibros > 0 ? 'badge-info' : 'badge-secondary'}" style="font-size:11px; white-space:nowrap;">
+                            ${totalLibros} libro(s) • ${dispEjemplaresArea}/${totalEjemplaresArea} disp.
                         </span>
                     </div>
-                    <div style="font-weight:bold; font-size:14px; color:#475569;">
-                        ${estaExpandida ? '▲ Ocultar' : '▼ Ver Libros (' + totalLibros + ')'}
-                    </div>
+                    <span style="font-size:16px; color:#64748b; font-weight:bold;">${estaExpandida ? '▲' : '▼'}</span>
                 </div>
                 ${estaExpandida ? tablaContentHtml : ''}
             </div>

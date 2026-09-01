@@ -1042,6 +1042,11 @@ async function buscarLibroParaCarrito() {
 
     const searchVariants = [cleanQ];
     if (/^\d+$/.test(cleanQ)) {
+        // Si el código termina en "00" (ej: 010300 o 01201400), agregar el prefijo de familia (0103 o 012014)
+        if (cleanQ.endsWith('00') && cleanQ.length >= 4) {
+            const familyPrefix = cleanQ.slice(0, -2);
+            if (!searchVariants.includes(familyPrefix)) searchVariants.push(familyPrefix);
+        }
         if (cleanQ.length === 6 || cleanQ.length === 8) {
             searchVariants.push(cleanQ);
         }
@@ -1071,7 +1076,8 @@ async function buscarLibroParaCarrito() {
             OR l.titulo LIKE ?
             OR l.autor LIKE ?
             OR l.editorial LIKE ?
-         LIMIT 20`,
+         ORDER BY e.codigo_ejemplar ASC
+         LIMIT 50`,
         [...likeParams, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
     );
 
@@ -1089,7 +1095,8 @@ async function buscarLibroParaCarrito() {
             OR p.titulo LIKE ?
             OR p.autores LIKE ?
             OR p.especialidad LIKE ?
-         LIMIT 20`,
+         ORDER BY pe.codigo_ejemplar ASC
+         LIMIT 50`,
         [...likeParams, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`, `%${cleanQ}%`]
     );
 
@@ -1099,7 +1106,7 @@ async function buscarLibroParaCarrito() {
     cartSearchResultsMap = {};
 
     if (rows.length === 0) {
-        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron libros ni proyectos. Intenta por código (ej: <b>010101</b> o <b>01201401</b>) o palabras del título.</p>';
+        resultsEl.innerHTML = '<p style="color:#888; font-size:13px; font-style:italic;">No se encontraron libros ni proyectos. Intenta por código (ej: <b>010301</b> o <b>010300</b> para toda la familia) o palabras del título.</p>';
         return;
     }
 
@@ -1109,20 +1116,39 @@ async function buscarLibroParaCarrito() {
         const enCarrito = cartItems.some(c => c.ejemId === item.ejem_id);
         const estaDisponible = item.ejem_estado === 'disponible';
         const disabled = !estaDisponible || enCarrito;
-        const btnText = enCarrito ? 'En Carrito' : (!estaDisponible ? `[${item.ejem_estado.toUpperCase()}]` : '+ Agregar');
+
+        const estadoUpper = (item.ejem_estado || 'DISPONIBLE').toUpperCase();
+        let statusBadge = '';
+        if (item.ejem_estado === 'disponible') {
+            statusBadge = `<span class="badge badge-success" style="font-size:10px; margin-left:4px;">✓ DISPONIBLE</span>`;
+        } else if (item.ejem_estado === 'prestado') {
+            statusBadge = `<span class="badge badge-danger" style="font-size:10px; margin-left:4px;">❌ PRESTADO</span>`;
+        } else if (item.ejem_estado === 'reservado') {
+            statusBadge = `<span class="badge badge-warning" style="font-size:10px; margin-left:4px;">⏱️ RESERVADO</span>`;
+        } else {
+            statusBadge = `<span class="badge badge-secondary" style="font-size:10px; margin-left:4px;">${estadoUpper}</span>`;
+        }
+
+        const btnText = enCarrito ? '✓ En Carrito' : (!estaDisponible ? `[${estadoUpper}]` : '+ Agregar');
         const badgeTipo = item.tipo_item === 'proyecto' 
             ? `<span class="badge badge-info" style="font-size:10px; margin-left:4px;">📂 PROYECTO</span>` 
             : `<span class="badge badge-secondary" style="font-size:10px; margin-left:4px;">📖 LIBRO</span>`;
 
+        const bgColor = enCarrito ? '#f0f4f8' : (estaDisponible ? '#ffffff' : '#fff5f5');
+
         return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #eee; background:#fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 12px; border-bottom:1px solid #eee; background:${bgColor};">
                 <div style="font-size:13px; flex:1; padding-right:10px;">
-                    <strong style="color:#007bff;">[${item.codigo_ejemplar}]</strong> <strong>${safeEscape(item.titulo)}</strong> ${badgeTipo} <small style="color:#666;">(Ejemplar #${item.ejemplar_num})</small><br>
+                    <strong style="color:#007bff; font-family:monospace; font-size:14px;">[${item.codigo_ejemplar}]</strong> 
+                    <strong>${safeEscape(item.titulo)}</strong> 
+                    ${badgeTipo} 
+                    ${statusBadge} 
+                    <small style="color:#444; font-weight:bold; margin-left:4px;">(Ejemplar #${item.ejemplar_num})</small><br>
                     <small style="color:#666;">${item.tipo_item === 'proyecto' ? 'Cod_Esp' : 'Área'}: ${item.area_cod || '-'} | Nº: ${item.libro_num || '-'} | Autor(es): ${safeEscape(item.autor || 'N/A')}</small>
                 </div>
                 <button onclick="agregarAlCarritoId('${item.ejem_id}')" 
-                        class="${disabled ? 'btn-secondary' : 'btn-success'}" 
-                        style="padding:5px 10px; font-size:12px;" ${disabled ? 'disabled' : ''}>
+                        class="${enCarrito ? 'btn-secondary' : (estaDisponible ? 'btn-success' : 'btn-danger')}" 
+                        style="padding:6px 12px; font-size:12px; font-weight:bold;" ${disabled ? 'disabled' : ''}>
                     ${btnText}
                 </button>
             </div>

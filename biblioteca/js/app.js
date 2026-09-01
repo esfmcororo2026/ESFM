@@ -2872,20 +2872,23 @@ async function confirmarCargaMasivaProyectosExcel() {
     }
 }
 
-// ---------- CATÁLOGO DE PROYECTOS ----------
+// ---------- CATÁLOGO DE PROYECTOS (SEGMENTADO POR ÁREA > GESTIÓN > MODALIDAD) ----------
 
 let catalogoProyectosCache = [];
 let catalogoProyectosEjemplaresMap = {};
+let proyAreaExpandidaState = {};
+let proyGestionExpandidaState = {};
+let proyModalidadExpandidaState = {};
 
 async function cargarCatalogoProyectos() {
-    const tbody = document.getElementById('proyectos-table-body');
-    if (!tbody) return;
+    const container = document.getElementById('proyectos-accordion-container');
+    if (!container) return;
 
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>';
+    container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo de proyectos por áreas y gestiones...</p>';
 
-    const res = await tursodb.query(`SELECT * FROM biblioteca_proyectos ORDER BY gestion DESC, CAST(cod_esp AS INTEGER) ASC, CAST(proyecto_num AS INTEGER) ASC`);
+    const res = await tursodb.query(`SELECT * FROM biblioteca_proyectos ORDER BY CAST(cod_esp AS INTEGER) ASC, gestion DESC, CAST(proyecto_num AS INTEGER) ASC`);
     if (!res.rows || res.rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No hay proyectos registrados en el catálogo. Usa el botón de arriba o la sección de Carga Masiva para registrar proyectos.</td></tr>';
+        container.innerHTML = '<p style="text-align:center; color:#888; padding:30px;">No hay proyectos registrados en el catálogo. Usa la sección de Carga Masiva para registrar proyectos.</p>';
         return;
     }
 
@@ -2900,77 +2903,261 @@ async function cargarCatalogoProyectos() {
         catalogoProyectosEjemplaresMap[e.proyecto_id].push(e);
     });
 
-    renderTablaProyectos(catalogoProyectosCache);
-}
-
-function renderTablaProyectos(lista) {
-    const tbody = document.getElementById('proyectos-table-body');
-    if (!tbody) return;
-
-    if (lista.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No se encontraron proyectos con los filtros seleccionados.</td></tr>';
-        return;
-    }
-
-    const limit = 200;
-    const listaRender = lista.slice(0, limit);
-
-    let rowsHtml = listaRender.map(p => {
-        const total = p.cantidad_total || 1;
-        const disp = p.cantidad_disponible !== null ? p.cantidad_disponible : total;
-
-        const ejems = catalogoProyectosEjemplaresMap[p.id] || [];
-        const codigosList = ejems.map(e => {
-            const st = (e.estado || 'disponible').toLowerCase();
-            let bg = '#d4edda'; let color = '#155724'; let border = '#c3e6cb'; let labelEstado = 'Disponible';
-            if (st === 'prestado') { bg = '#f8d7da'; color = '#721c24'; border = '#f5c6cb'; labelEstado = 'Prestado'; }
-            else if (st === 'reservado' || st === 'reservada') { bg = '#e2e3e5'; color = '#383d41'; border = '#d6d8db'; labelEstado = 'Reservado'; }
-            return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:12px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
-        }).join('');
-
-        return `
-            <tr>
-                <td>${codigosList || `<span class="book-code-chip">${p.codigo_proyecto}</span>`}</td>
-                <td><strong>${p.gestion || '-'}</strong></td>
-                <td><span class="badge badge-info">${escapeHtml(p.especialidad || 'Especialidad')}</span></td>
-                <td><span class="badge badge-secondary" style="background:#6c757d; color:#fff;">${escapeHtml(p.modalidad || '-')}</span></td>
-                <td><strong>${escapeHtml(p.titulo)}</strong></td>
-                <td>${escapeHtml(p.autores || 'N/A')}</td>
-                <td><strong>${disp} / ${total}</strong></td>
-                <td><span class="badge badge-secondary">${p.estado_fisico || 'Bueno'}</span></td>
-                <td>
-                    <button onclick="editarProyecto('${p.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
-                    <button onclick="eliminarProyecto('${p.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-
-    if (lista.length > limit) {
-        rowsHtml += `<tr><td colspan="9" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} proyectos de ${lista.length} registrados. Usa el buscador arriba para filtrar.</td></tr>`;
-    }
-
-    tbody.innerHTML = rowsHtml;
+    filtrarCatalogoProyectos();
 }
 
 function filtrarCatalogoProyectos() {
-    const q = document.getElementById('proy-search-input').value.toLowerCase().trim();
-    const stGestion = document.getElementById('proy-filter-gestion').value;
+    const q = document.getElementById('proy-search-input')?.value.toLowerCase().trim() || '';
+    const stGestion = document.getElementById('proy-filter-gestion')?.value || '';
+
+    const isFiltered = Boolean(q || stGestion);
 
     const filtrados = catalogoProyectosCache.filter(p => {
-        const matchQ = p.codigo_proyecto.toLowerCase().includes(q) ||
-                       p.titulo.toLowerCase().includes(q) ||
-                       (p.autores || '').toLowerCase().includes(q) ||
-                       (p.especialidad || '').toLowerCase().includes(q) ||
-                       (p.modalidad || '').toLowerCase().includes(q);
+        const matchQ = !q || (
+            p.codigo_proyecto.toLowerCase().includes(q) ||
+            p.titulo.toLowerCase().includes(q) ||
+            (p.autores || '').toLowerCase().includes(q) ||
+            (p.especialidad || '').toLowerCase().includes(q) ||
+            (p.modalidad || '').toLowerCase().includes(q)
+        );
 
-        let matchGestion = true;
-        if (stGestion) matchGestion = String(p.gestion) === stGestion;
+        const matchGestion = !stGestion || String(p.gestion) === stGestion;
 
         return matchQ && matchGestion;
     });
 
-    renderTablaProyectos(filtrados);
+    renderCatalogoProyectosAccordion(filtrados, isFiltered);
+}
+
+function renderCatalogoProyectosAccordion(listaProyectos, isFiltered = false) {
+    const container = document.getElementById('proyectos-accordion-container');
+    if (!container) return;
+
+    if (!listaProyectos || listaProyectos.length === 0) {
+        container.innerHTML = '<p style="text-align:center; color:#888; padding:30px; font-style:italic;">No se encontraron proyectos que coincidan con los filtros seleccionados.</p>';
+        return;
+    }
+
+    // 1. Agrupar por Área (01 al 29, OTRAS)
+    const proyectosPorArea = {};
+    CATALOGO_AREAS_DEF.forEach(a => { proyectosPorArea[a.cod] = []; });
+    proyectosPorArea['OTRAS'] = [];
+
+    listaProyectos.forEach(p => {
+        const areaCodPad = String(p.cod_esp || '').trim().padStart(2, '0');
+        if (proyectosPorArea[areaCodPad]) {
+            proyectosPorArea[areaCodPad].push(p);
+        } else {
+            proyectosPorArea['OTRAS'].push(p);
+        }
+    });
+
+    let areasParaMostrar = [...CATALOGO_AREAS_DEF];
+    if (proyectosPorArea['OTRAS'].length > 0) {
+        areasParaMostrar.push({ cod: 'OTRAS', nombre: 'Otras Áreas / Sin Clasificar', icon: '📂' });
+    }
+
+    const html = areasParaMostrar.map(area => {
+        const proysArea = proyectosPorArea[area.cod] || [];
+        const totalProyArea = proysArea.length;
+
+        if (isFiltered && totalProyArea === 0) return '';
+
+        const estaAreaExpandida = isFiltered ? (totalProyArea > 0) : (proyAreaExpandidaState[area.cod] === true);
+
+        // 2. Agrupar por Gestión (Año) dentro del Área
+        let gestionesHtml = '';
+        if (estaAreaExpandida) {
+            if (totalProyArea === 0) {
+                gestionesHtml = `<div style="padding:15px; text-align:center; color:#888; font-style:italic;">No hay proyectos registrados en esta área.</div>`;
+            } else {
+                const proysPorGestion = {};
+                proysArea.forEach(p => {
+                    const g = String(p.gestion || 'Sin Gestión').trim();
+                    if (!proysPorGestion[g]) proysPorGestion[g] = [];
+                    proysPorGestion[g].push(p);
+                });
+
+                const gestionesOrdenadas = Object.keys(proysPorGestion).sort((a, b) => b.localeCompare(a));
+
+                gestionesHtml = gestionesOrdenadas.map(g => {
+                    const proysGestion = proysPorGestion[g];
+                    const gKey = `${area.cod}_${g}`;
+                    const estaGestionExpandida = isFiltered ? true : (proyGestionExpandidaState[gKey] === true);
+
+                    // 3. Agrupar por Modalidad dentro de la Gestión
+                    let modalidadesHtml = '';
+                    if (estaGestionExpandida) {
+                        const proysPorMod = {};
+                        proysGestion.forEach(p => {
+                            const m = String(p.modalidad || 'Sin Modalidad Especificada').trim();
+                            if (!proysPorMod[m]) proysPorMod[m] = [];
+                            proysPorMod[m].push(p);
+                        });
+
+                        const modalidadesOrdenadas = Object.keys(proysPorMod).sort();
+
+                        modalidadesHtml = modalidadesOrdenadas.map(modNombre => {
+                            const proysMod = proysPorMod[modNombre];
+                            const modSanitizedKey = modNombre.replace(/[^a-zA-Z0-9]/g, '_');
+                            const modKey = `${area.cod}_${g}_${modSanitizedKey}`;
+                            const estaModExpandida = isFiltered ? true : (proyModalidadExpandidaState[modKey] === true);
+
+                            // 4. Renderizar Tabla de Proyectos
+                            let rowsHtml = '';
+                            if (estaModExpandida) {
+                                rowsHtml = proysMod.map(p => {
+                                    const total = p.cantidad_total || 1;
+                                    const disp = p.cantidad_disponible !== null ? p.cantidad_disponible : total;
+                                    const ejems = catalogoProyectosEjemplaresMap[p.id] || [];
+
+                                    const codigosList = ejems.map(e => {
+                                        const st = (e.estado || 'disponible').toLowerCase();
+                                        let bg = '#d4edda'; let color = '#155724'; let border = '#c3e6cb'; let labelEstado = 'Disponible';
+                                        if (st === 'prestado') { bg = '#f8d7da'; color = '#721c24'; border = '#f5c6cb'; labelEstado = 'Prestado'; }
+                                        else if (st === 'reservado' || st === 'reservada') { bg = '#e2e3e5'; color = '#383d41'; border = '#d6d8db'; labelEstado = 'Reservado'; }
+                                        return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:12px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
+                                    }).join('');
+
+                                    return `
+                                        <tr>
+                                            <td>${codigosList || `<span class="book-code-chip">${p.codigo_proyecto}</span>`}</td>
+                                            <td><strong>${escapeHtml(p.titulo)}</strong></td>
+                                            <td>${escapeHtml(p.autores || 'N/A')}</td>
+                                            <td><strong>${disp} / ${total}</strong></td>
+                                            <td><span class="badge badge-secondary">${p.estado_fisico || 'Bueno'}</span></td>
+                                            <td>
+                                                <button onclick="editarProyecto('${p.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
+                                                <button onclick="eliminarProyecto('${p.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️</button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('');
+                            }
+
+                            return `
+                                <div id="proy-modalidad-card-${modKey}" style="background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; margin-bottom:8px; overflow:hidden;">
+                                    <div onclick="toggleProyModalidad('${area.cod}', '${g}', '${modSanitizedKey}')"
+                                         style="padding:9px 12px; background:${estaModExpandida ? '#e8f5e9' : '#ffffff'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaModExpandida ? '1px solid #c8e6c9' : 'none'};">
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <strong style="font-size:13px; color:#2e7d32;">🎓 Modalidad: ${escapeHtml(modNombre)}</strong>
+                                            <span class="badge" style="font-size:11px; background:#2e7d32; color:#fff;">${proysMod.length} proyecto(s)</span>
+                                        </div>
+                                        <span style="font-size:13px; color:#2e7d32; font-weight:bold;">${estaModExpandida ? '▲' : '▼'}</span>
+                                    </div>
+                                    ${estaModExpandida ? `
+                                        <div class="table-responsive">
+                                            <table class="bib-table" style="margin-bottom:0;">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Código Único</th>
+                                                        <th>Título del Proyecto</th>
+                                                        <th>Autores / Equipo Comunitario</th>
+                                                        <th>Ejemplares (Disp / Tot)</th>
+                                                        <th>Estado Físico</th>
+                                                        <th>Acciones</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${rowsHtml}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('');
+                    }
+
+                    return `
+                        <div id="proy-gestion-card-${area.cod}-${g}" style="background:#ffffff; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:10px; overflow:hidden;">
+                            <div onclick="toggleProyGestion('${area.cod}', '${g}')"
+                                 style="padding:11px 15px; background:${estaGestionExpandida ? '#e0f2fe' : '#ffffff'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaGestionExpandida ? '1px solid #bae6fd' : 'none'};">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <strong style="font-size:14px; color:#0369a1;">📅 Gestión ${g}</strong>
+                                    <span class="badge" style="font-size:11px; background:#0284c7; color:#fff;">${proysGestion.length} proyecto(s)</span>
+                                </div>
+                                <span style="font-size:14px; color:#0369a1; font-weight:bold;">${estaGestionExpandida ? '▲' : '▼'}</span>
+                            </div>
+                            ${estaGestionExpandida ? `
+                                <div style="padding:10px 12px; background:#f8fafc;">
+                                    ${modalidadesHtml}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        return `
+            <div id="proy-area-card-${area.cod}" style="background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:12px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+                <div onclick="toggleProyArea('${area.cod}')"
+                     style="padding:14px 18px; background:${estaAreaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaAreaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <strong style="font-size:15px; color:#0f172a;">${area.cod !== 'OTRAS' ? area.cod + ' - ' : ''}${area.icon} ${area.nombre}</strong>
+                        <span class="badge badge-info" style="font-size:11px;">${totalProyArea} proyecto(s)</span>
+                    </div>
+                    <span style="font-size:16px; color:#64748b; font-weight:bold;">${estaAreaExpandida ? '▲' : '▼'}</span>
+                </div>
+                ${estaAreaExpandida ? `
+                    <div style="padding:12px 15px; background:#f1f5f9;">
+                        ${gestionesHtml}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function toggleProyArea(areaCod) {
+    proyAreaExpandidaState[areaCod] = !proyAreaExpandidaState[areaCod];
+    filtrarCatalogoProyectos();
+    if (proyAreaExpandidaState[areaCod]) {
+        setTimeout(() => {
+            const el = document.getElementById(`proy-area-card-${areaCod}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
+}
+
+function toggleProyGestion(areaCod, gestion) {
+    const key = `${areaCod}_${gestion}`;
+    proyGestionExpandidaState[key] = !proyGestionExpandidaState[key];
+    filtrarCatalogoProyectos();
+    if (proyGestionExpandidaState[key]) {
+        setTimeout(() => {
+            const el = document.getElementById(`proy-gestion-card-${areaCod}-${gestion}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
+}
+
+function toggleProyModalidad(areaCod, gestion, modSanitizedKey) {
+    const key = `${areaCod}_${gestion}_${modSanitizedKey}`;
+    proyModalidadExpandidaState[key] = !proyModalidadExpandidaState[key];
+    filtrarCatalogoProyectos();
+    if (proyModalidadExpandidaState[key]) {
+        setTimeout(() => {
+            const el = document.getElementById(`proy-modalidad-card-${key}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
+}
+
+function expandirTodasAreasProyectos() {
+    CATALOGO_AREAS_DEF.forEach(a => { proyAreaExpandidaState[a.cod] = true; });
+    proyAreaExpandidaState['OTRAS'] = true;
+    filtrarCatalogoProyectos();
+}
+
+function colapsarTodasAreasProyectos() {
+    proyAreaExpandidaState = {};
+    proyGestionExpandidaState = {};
+    proyModalidadExpandidaState = {};
+    filtrarCatalogoProyectos();
 }
 
 function abrirModalProyecto() {

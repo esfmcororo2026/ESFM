@@ -1763,6 +1763,23 @@ const CATALOGO_AREAS_DEF = [
     { cod: "29", nombre: "OBRAS GENERALES", icon: "📑" }
 ];
 
+const PROYECTOS_AREAS_DEF = [
+    { cod: "01", nombre: "EDUCACIÓN PRIMARIA COMUNITARIA VOCACIONAL", icon: "🎒" },
+    { cod: "02", nombre: "EDUCACIÓN INICIAL EN FAMILIA COMUNITARIA", icon: "🧸" },
+    { cod: "03", nombre: "ARTES PLÁSTICAS Y VISUALES", icon: "🎨" },
+    { cod: "04", nombre: "MATEMÁTICA", icon: "📐" },
+    { cod: "05", nombre: "COMUNICACIÓN Y LENGUAJES: LENGUA EXTRANJERA (INGLÉS)", icon: "🔤" },
+    { cod: "06", nombre: "COMUNICACIÓN Y LENGUAJES: LENGUA CASTELLANA", icon: "📖" },
+    { cod: "07", nombre: "CIENCIAS NATURALES: FÍSICA – QUÍMICA", icon: "🧪" },
+    { cod: "08", nombre: "CIENCIAS SOCIALES", icon: "🌍" },
+    { cod: "09", nombre: "CIENCIAS NATURALES: BIOLOGÍA – GEOGRAFÍA", icon: "🌿" },
+    { cod: "10", nombre: "EDUCACIÓN MUSICAL", icon: "🎵" },
+    { cod: "11", nombre: "EDUCACIÓN FÍSICA Y DEPORTES", icon: "⚽" },
+    { cod: "12", nombre: "VALORES, ESPIRITUALIDAD Y RELIGIONES", icon: "🕊️" },
+    { cod: "13", nombre: "EDUCACIÓN ESPECIAL PARA PERSONAS CON DISCAPACIDAD", icon: "♿" },
+    { cod: "14", nombre: "COSMOVISIONES, FILOSOFÍAS Y SICOLOGÍA", icon: "🧠" }
+];
+
 let catalogoEjemplaresMap = {};
 let areaPaginasState = {};
 let areaExpandidaState = {};
@@ -2938,9 +2955,9 @@ function renderCatalogoProyectosAccordion(listaProyectos, isFiltered = false) {
         return;
     }
 
-    // 1. Agrupar por Área (01 al 29, OTRAS)
+    // 1. Agrupar por Especialidad / Área de Proyectos (01 al 14, OTRAS)
     const proyectosPorArea = {};
-    CATALOGO_AREAS_DEF.forEach(a => { proyectosPorArea[a.cod] = []; });
+    PROYECTOS_AREAS_DEF.forEach(a => { proyectosPorArea[a.cod] = []; });
     proyectosPorArea['OTRAS'] = [];
 
     listaProyectos.forEach(p => {
@@ -2952,9 +2969,9 @@ function renderCatalogoProyectosAccordion(listaProyectos, isFiltered = false) {
         }
     });
 
-    let areasParaMostrar = [...CATALOGO_AREAS_DEF];
+    let areasParaMostrar = [...PROYECTOS_AREAS_DEF];
     if (proyectosPorArea['OTRAS'].length > 0) {
-        areasParaMostrar.push({ cod: 'OTRAS', nombre: 'Otras Áreas / Sin Clasificar', icon: '📂' });
+        areasParaMostrar.push({ cod: 'OTRAS', nombre: 'Otras Especialidades / Sin Clasificar', icon: '📂' });
     }
 
     const html = areasParaMostrar.map(area => {
@@ -3148,7 +3165,7 @@ function toggleProyModalidad(areaCod, gestion, modSanitizedKey) {
 }
 
 function expandirTodasAreasProyectos() {
-    CATALOGO_AREAS_DEF.forEach(a => { proyAreaExpandidaState[a.cod] = true; });
+    PROYECTOS_AREAS_DEF.forEach(a => { proyAreaExpandidaState[a.cod] = true; });
     proyAreaExpandidaState['OTRAS'] = true;
     filtrarCatalogoProyectos();
 }
@@ -3179,13 +3196,25 @@ function cerrarFormProyecto() {
 }
 
 function actualizarPrevisualizacionCodigoProyecto() {
-    const esp = pad2(document.getElementById('proy-input-esp')?.value.trim());
+    const espInput = document.getElementById('proy-input-esp');
+    const espVal = espInput?.value.trim() || '';
+    const esp = pad2(espVal);
     const gestion = String(document.getElementById('proy-input-gestion')?.value.trim() || '');
     const num = pad2(document.getElementById('proy-input-num')?.value.trim());
+
+    const espField = document.getElementById('proy-input-especialidad');
+    if (espField && esp) {
+        const areaDef = PROYECTOS_AREAS_DEF.find(a => a.cod === esp);
+        if (areaDef && (!espField.value || espField.dataset.autofilled === '1')) {
+            espField.value = areaDef.nombre;
+            espField.dataset.autofilled = '1';
+        }
+    }
+
     const prevEl = document.getElementById('proy-code-preview');
     if (!prevEl) return;
 
-    if (!esp || !gestion || !num) {
+    if (!espVal || !gestion || !num) {
         prevEl.textContent = '🏷️ Código que se generará: (Ingresa Cod_Esp, Gestión y Nº)';
         return;
     }

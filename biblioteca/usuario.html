@@ -311,29 +311,17 @@
                 </div>
             </div>
 
-            <!-- Buscador -->
-            <div style="display:flex; gap:10px; margin-bottom:15px;">
-                <input type="text" id="catalogo-search-input" placeholder="Buscar por código (ej: 011201), título o autor..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px; font-size:14px;" oninput="filtrarCatalogoPortal()">
+            <!-- Controles de Catálogo: Buscador y Acciones -->
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; align-items:center;">
+                <input type="text" id="catalogo-search-input" placeholder="🔍 Buscar por título, autor o código (ej: 0103)..." style="flex:1; min-width:220px; padding:10px; border:1px solid #ccc; border-radius:8px; font-size:14px;" oninput="filtrarCatalogoPortal()">
+                <button onclick="expandirTodasAreasPortal()" class="btn-secondary" style="padding:9px 12px; font-size:12px;">📂 Expandir Todas</button>
+                <button onclick="colapsarTodasAreasPortal()" class="btn-secondary" style="padding:9px 12px; font-size:12px;">📁 Colapsar Todas</button>
             </div>
 
-            <!-- Tabla del catálogo -->
-            <div class="table-responsive">
-                <table class="bib-table" id="catalogo-portal-table">
-                    <thead>
-                        <tr>
-                            <th style="width:80px;">Código</th>
-                            <th>Título</th>
-                            <th>Autor</th>
-                            <th style="width:180px;">Ejemplares (Estado)</th>
-                            <th style="width:130px;">Disponibilidad</th>
-                        </tr>
-                    </thead>
-                    <tbody id="catalogo-portal-tbody">
-                        <tr><td colspan="5" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>
-                    </tbody>
-                </table>
+            <!-- Contenedor dinámico de Áreas / Secciones del Portal -->
+            <div id="catalogo-portal-areas-container">
+                <p style="text-align:center; color:#666; padding:30px;">Cargando catálogo por áreas...</p>
             </div>
-            <div id="catalogo-portal-pagination" style="text-align:center; margin-top:15px; color:#64748b; font-size:13px;"></div>
         </div>
 
     </div>

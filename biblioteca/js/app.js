@@ -1728,25 +1728,43 @@ async function renovarPrestamo(prestamoId, fechaDevolucionActual = null) {
     await abrirModalRenovar(prestamoId);
 }
 
-// ---------- 3. CATÁLOGO E INVENTARIO DE LIBROS ----------
+// ---------- 3. CATÁLOGO E INVENTARIO DE LIBROS (VISTA POR SECCIONES Y PAGINADO 20 EN 20) ----------
+
+const CATALOGO_AREAS_DEF = [
+    { cod: "01", nombre: "Educación Primaria Comunitaria Vocacional", icon: "🌱" },
+    { cod: "02", nombre: "Educación Inicial en Familia Comunitaria", icon: "👶" },
+    { cod: "03", nombre: "Artes Plásticas y Visuales", icon: "🎨" },
+    { cod: "04", nombre: "Matemática", icon: "📐" },
+    { cod: "05", nombre: "Comunicación y Lenguajes: Lengua Extranjera (Inglés)", icon: "🇬🇧" },
+    { cod: "06", nombre: "Comunicación y Lenguajes: Lengua Castellana", icon: "📖" },
+    { cod: "07", nombre: "Ciencias Naturales. Física – Química", icon: "🔬" },
+    { cod: "08", nombre: "Ciencias Sociales", icon: "🌎" },
+    { cod: "09", nombre: "Ciencias Naturales: Biología – Geografía", icon: "🌿" },
+    { cod: "10", nombre: "Educación Musical", icon: "🎵" },
+    { cod: "11", nombre: "Educación Física y Deportes", icon: "⚽" },
+    { cod: "12", nombre: "Valores, Espiritualidad y Religiones", icon: "🕊️" },
+    { cod: "13", nombre: "Educación Especial para Personas con Discapacidad", icon: "🤝" },
+    { cod: "14", nombre: "Cosmovisiones, Filosofías y Sicología", icon: "🧠" }
+];
 
 let catalogoEjemplaresMap = {};
+let areaPaginasState = {};
+let areaExpandidaState = {};
 
 async function cargarCatalogoLibros() {
-    const tbody = document.getElementById('catalogo-table-body');
-    if (!tbody) return;
+    const container = document.getElementById('catalogo-areas-container');
+    if (!container) return;
 
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#666;">Cargando catálogo...</td></tr>';
+    container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo por áreas...</p>';
 
     const res = await tursodb.query(`SELECT * FROM biblioteca_libros ORDER BY CAST(area_cod AS INTEGER) ASC, CAST(libro_num AS INTEGER) ASC`);
     if (!res.rows || res.rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#888;">No hay libros registrados en el catálogo.</td></tr>';
+        container.innerHTML = '<p style="text-align:center; color:#888; padding:30px;">No hay libros registrados en el catálogo.</p>';
         return;
     }
 
     catalogoLibrosCache = res.rows;
 
-    // Traer todos los ejemplares 1 sola vez y guardar en mapa global
     const ejemRes = await tursodb.query(`SELECT libro_id, codigo_ejemplar, estado, ejemplar_num FROM biblioteca_ejemplares ORDER BY ejemplar_num ASC`);
     const todosEjemplares = ejemRes.rows || [];
     
@@ -1756,80 +1774,227 @@ async function cargarCatalogoLibros() {
         catalogoEjemplaresMap[e.libro_id].push(e);
     });
 
-    await renderTablaCatalogo(catalogoLibrosCache);
+    renderCatalogoPorAreas(catalogoLibrosCache);
 }
 
-async function renderTablaCatalogo(lista) {
-    const tbody = document.getElementById('catalogo-table-body');
-    if (!tbody) return;
+function renderCatalogoPorAreas(listaLibros, isFiltered = false) {
+    const container = document.getElementById('catalogo-areas-container');
+    if (!container) return;
 
-    if (lista.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#888;">No se encontraron libros.</td></tr>';
+    if (!listaLibros || listaLibros.length === 0) {
+        container.innerHTML = '<p style="text-align:center; color:#888; padding:30px; font-style:italic;">No se encontraron libros que coincidan con la búsqueda.</p>';
         return;
     }
 
-    // Mostrar un límite de 200 filas para fluidez del DOM
-    const limit = 200;
-    const listaRender = lista.slice(0, limit);
+    // Agrupar libros por código de área (pad2)
+    const librosPorArea = {};
+    CATALOGO_AREAS_DEF.forEach(a => { librosPorArea[a.cod] = []; });
+    librosPorArea['OTRAS'] = [];
 
-    let rowsHtml = listaRender.map(b => {
-        const total = b.cantidad_total || 1;
-        const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
+    listaLibros.forEach(b => {
+        const areaCodPad = String(b.area_cod || '').trim().padStart(2, '0');
+        if (librosPorArea[areaCodPad]) {
+            librosPorArea[areaCodPad].push(b);
+        } else {
+            librosPorArea['OTRAS'].push(b);
+        }
+    });
 
-        const ejems = catalogoEjemplaresMap[b.id] || [];
-        const codigosList = ejems.map(e => {
-            const st = (e.estado || 'disponible').toLowerCase();
-            let bg = '#d4edda';       // Verde (Disponible)
-            let color = '#155724';
-            let border = '#c3e6cb';
-            let labelEstado = 'Disponible';
+    let areasParaMostrar = [...CATALOGO_AREAS_DEF];
+    if (librosPorArea['OTRAS'].length > 0) {
+        areasParaMostrar.push({ cod: 'OTRAS', nombre: 'Otras Áreas / Sin Clasificar', icon: '📚' });
+    }
 
-            if (st === 'prestado') {
-                bg = '#f8d7da';       // Rojo (Prestado)
-                color = '#721c24';
-                border = '#f5c6cb';
-                labelEstado = 'Prestado';
-            } else if (st === 'reservado' || st === 'reservada') {
-                bg = '#e2e3e5';       // Plomo / Gris (Reservado)
-                color = '#383d41';
-                border = '#d6d8db';
-                labelEstado = 'Reservado';
+    const pageSize = 20;
+
+    let html = areasParaMostrar.map(area => {
+        const librosArea = librosPorArea[area.cod] || [];
+        const totalLibros = librosArea.length;
+        
+        // Contar total de ejemplares en esta área
+        let totalEjemplaresArea = 0;
+        let dispEjemplaresArea = 0;
+        librosArea.forEach(b => {
+            const tot = b.cantidad_total || 1;
+            const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : tot;
+            totalEjemplaresArea += tot;
+            dispEjemplaresArea += disp;
+        });
+
+        // Si se está filtrando por búsqueda y el área no tiene coincidencia, ocultarla
+        if (isFiltered && totalLibros === 0) return '';
+
+        // Estado de expansión
+        const estaExpandida = isFiltered ? (totalLibros > 0) : (areaExpandidaState[area.cod] === true);
+
+        // Paginación de 20 en 20 para esta área
+        const totalPages = Math.ceil(totalLibros / pageSize) || 1;
+        let currentPage = areaPaginasState[area.cod] || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+
+        const startIndex = (currentPage - 1) * pageSize;
+        const pageBooks = librosArea.slice(startIndex, startIndex + pageSize);
+
+        // Renderizado de tabla si el área está expandida
+        let tablaContentHtml = '';
+        if (estaExpandida) {
+            if (totalLibros === 0) {
+                tablaContentHtml = `<div style="padding:20px; text-align:center; color:#888; font-style:italic; background:#fff;">No hay libros registrados en esta área de formación.</div>`;
+            } else {
+                const rowsHtml = pageBooks.map(b => {
+                    const total = b.cantidad_total || 1;
+                    const disp = b.cantidad_disponible !== null ? b.cantidad_disponible : total;
+
+                    const ejems = catalogoEjemplaresMap[b.id] || [];
+                    const codigosList = ejems.map(e => {
+                        const st = (e.estado || 'disponible').toLowerCase();
+                        let bg = '#d4edda';
+                        let color = '#155724';
+                        let border = '#c3e6cb';
+                        let labelEstado = 'Disponible';
+
+                        if (st === 'prestado') {
+                            bg = '#f8d7da'; color = '#721c24'; border = '#f5c6cb'; labelEstado = 'Prestado';
+                        } else if (st === 'reservado' || st === 'reservada') {
+                            bg = '#e2e3e5'; color = '#383d41'; border = '#d6d8db'; labelEstado = 'Reservado';
+                        }
+
+                        return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:12px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
+                    }).join('');
+
+                    return `
+                        <tr>
+                            <td><strong>${b.area_cod || '-'}</strong></td>
+                            <td><strong>${b.libro_num || '-'}</strong></td>
+                            <td>${codigosList || 'Sin códigos'}</td>
+                            <td><strong>${safeEscape(b.titulo)}</strong></td>
+                            <td>${safeEscape(b.autor || '-')}</td>
+                            <td>${safeEscape(b.editorial || '-')}</td>
+                            <td>${b.anio || '-'}</td>
+                            <td><strong>${disp} / ${total}</strong></td>
+                            <td><span class="badge badge-secondary">${b.estado_fisico || 'Bueno'}</span></td>
+                            <td>
+                                <button onclick="editarLibro('${b.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
+                                ${disp === 0 ? `<button onclick="solicitarReservaLibro('${b.id}', '${escapeHtml(b.titulo)}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔖 Reservar</button>` : ''}
+                                <button onclick="eliminarLibro('${b.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+                // Generar Hojas / Botones de Paginación (20 por página)
+                let paginationHtml = '';
+                if (totalPages > 1) {
+                    let pageBtns = '';
+                    for (let p = 1; p <= totalPages; p++) {
+                        const isCur = p === currentPage;
+                        pageBtns += `
+                            <button onclick="cambiarPaginaArea('${area.cod}', ${p})" 
+                                    style="padding:5px 10px; margin:0 2px; border-radius:5px; border:1px solid #ccc; font-weight:bold; font-size:12px; cursor:pointer; background:${isCur ? '#007bff' : '#ffffff'}; color:${isCur ? '#ffffff' : '#333333'};">
+                                Hoja ${p}
+                            </button>
+                        `;
+                    }
+
+                    const prevDisabled = currentPage === 1;
+                    const nextDisabled = currentPage === totalPages;
+
+                    paginationHtml = `
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 15px; background:#f8f9fa; border-top:1px solid #eee;">
+                            <div style="font-size:13px; color:#555;">
+                                Mostrando <strong>${startIndex + 1} - ${Math.min(startIndex + pageSize, totalLibros)}</strong> de <strong>${totalLibros}</strong> libros (Página ${currentPage} de ${totalPages})
+                            </div>
+                            <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+                                <button onclick="cambiarPaginaArea('${area.cod}', ${currentPage - 1})" ${prevDisabled ? 'disabled' : ''} class="btn-secondary" style="padding:4px 9px; font-size:12px;">◀ Anterior</button>
+                                ${pageBtns}
+                                <button onclick="cambiarPaginaArea('${area.cod}', ${currentPage + 1})" ${nextDisabled ? 'disabled' : ''} class="btn-secondary" style="padding:4px 9px; font-size:12px;">Siguiente ▶</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    paginationHtml = `
+                        <div style="padding:10px 15px; background:#f8f9fa; border-top:1px solid #eee; font-size:12px; color:#666; text-align:right;">
+                            Total: <strong>${totalLibros}</strong> libro(s) en esta área.
+                        </div>
+                    `;
+                }
+
+                tablaContentHtml = `
+                    <div class="table-responsive">
+                        <table class="bib-table">
+                            <thead>
+                                <tr>
+                                    <th>COD</th>
+                                    <th>Nº</th>
+                                    <th>CÓDIGOS EJEMPLARES</th>
+                                    <th>TÍTULO</th>
+                                    <th>AUTOR</th>
+                                    <th>EDITORIAL</th>
+                                    <th>AÑO</th>
+                                    <th>EJEMPLARES (Disp / Tot)</th>
+                                    <th>ESTADO FÍSICO</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${paginationHtml}
+                `;
             }
-
-            return `<span style="font-family:monospace; background:${bg}; color:${color}; border:1px solid ${border}; padding:3px 7px; border-radius:6px; margin:2px 4px 2px 0; font-weight:bold; font-size:12px; display:inline-block;" title="Estado: ${labelEstado}">${e.codigo_ejemplar}</span>`;
-        }).join('');
+        }
 
         return `
-            <tr>
-                <td><strong>${b.area_cod || '-'}</strong></td>
-                <td><strong>${b.libro_num || '-'}</strong></td>
-                <td>${codigosList || 'Sin códigos'}</td>
-                <td><strong>${b.titulo}</strong></td>
-                <td>${b.autor || '-'}</td>
-                <td>${b.editorial || '-'}</td>
-                <td>${b.anio || '-'}</td>
-                <td><strong>${disp} / ${total}</strong></td>
-                <td><span class="badge badge-secondary">${b.estado_fisico || 'Bueno'}</span></td>
-                <td>
-                    <button onclick="editarLibro('${b.id}')" class="btn-secondary" style="padding:4px 8px; font-size:12px;">✏️ Editar</button>
-                    ${disp === 0 ? `<button onclick="solicitarReservaLibro('${b.id}', '${escapeHtml(b.titulo)}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔖 Reservar</button>` : ''}
-                    <button onclick="eliminarLibro('${b.id}')" class="btn-danger" style="padding:4px 8px; font-size:12px;">🗑️</button>
-                </td>
-            </tr>
+            <div style="background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:14px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+                <div onclick="toggleAreaCatalogo('${area.cod}')" 
+                     style="padding:14px 18px; background:${estaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.2s;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <span style="background:#0284c7; color:#ffffff; font-weight:bold; font-size:12px; padding:3px 8px; border-radius:6px; font-family:monospace;">[COD ${area.cod}]</span>
+                        <strong style="font-size:15px; color:#0f172a;">${area.icon} ${area.nombre}</strong>
+                        <span class="badge ${totalLibros > 0 ? 'badge-info' : 'badge-secondary'}" style="font-size:12px; font-weight:bold;">
+                            ${totalLibros} libro(s) • ${dispEjemplaresArea}/${totalEjemplaresArea} ejem. disp.
+                        </span>
+                    </div>
+                    <div style="font-weight:bold; font-size:14px; color:#475569;">
+                        ${estaExpandida ? '▲ Ocultar' : '▼ Ver Libros (' + totalLibros + ')'}
+                    </div>
+                </div>
+                ${estaExpandida ? tablaContentHtml : ''}
+            </div>
         `;
     }).join('');
 
-    if (lista.length > limit) {
-        rowsHtml += `<tr><td colspan="10" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} libros de ${lista.length} registrados (Usa el buscador arriba para filtrar por código, título o autor).</td></tr>`;
-    }
+    container.innerHTML = html;
+}
 
-    tbody.innerHTML = rowsHtml;
+function toggleAreaCatalogo(areaCod) {
+    areaExpandidaState[areaCod] = !areaExpandidaState[areaCod];
+    filtrarCatalogo();
+}
+
+function cambiarPaginaArea(areaCod, nuevaPagina) {
+    areaPaginasState[areaCod] = nuevaPagina;
+    filtrarCatalogo();
+}
+
+function expandirTodasAreas() {
+    CATALOGO_AREAS_DEF.forEach(a => { areaExpandidaState[a.cod] = true; });
+    areaExpandidaState['OTRAS'] = true;
+    filtrarCatalogo();
+}
+
+function colapsarTodasAreas() {
+    areaExpandidaState = {};
+    filtrarCatalogo();
 }
 
 function filtrarCatalogo() {
-    const rawQ = document.getElementById('cat-search-input').value.trim().toLowerCase();
+    const rawQ = document.getElementById('cat-search-input')?.value.trim().toLowerCase() || '';
     if (!rawQ) {
-        renderTablaCatalogo(catalogoLibrosCache);
+        renderCatalogoPorAreas(catalogoLibrosCache, false);
         return;
     }
 
@@ -1843,17 +2008,15 @@ function filtrarCatalogo() {
         const autor = String(b.autor || '').toLowerCase();
         const edit = String(b.editorial || '').toLowerCase();
 
-        // Buscar coincidencias directas en código de área, número de libro, combinación (ej: 0101), título, autor o editorial
         if (area.includes(cleanQ) || num.includes(cleanQ) || combo.includes(cleanQ) || titulo.includes(cleanQ) || autor.includes(cleanQ) || edit.includes(cleanQ)) {
             return true;
         }
 
-        // Buscar coincidencia en códigos de ejemplar (ej: 010101)
         const ejems = catalogoEjemplaresMap[b.id] || [];
         return ejems.some(e => String(e.codigo_ejemplar || '').toLowerCase().includes(cleanQ));
     });
 
-    renderTablaCatalogo(filtrados);
+    renderCatalogoPorAreas(filtrados, true);
 }
 
 function abrirModalLibro() {

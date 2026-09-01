@@ -295,7 +295,10 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
             <div id="tab-catalogo" class="bib-tab-content card hidden">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
                     <h3>📚 Catálogo de Libros</h3>
-                    <button onclick="abrirModalLibro()" class="btn-primary">+ Registrar Nuevo Libro</button>
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="abrirModalLibro()" class="btn-primary">+ Registrar Nuevo Libro</button>
+                        <button onclick="vaciarBDLibros()" class="btn-danger" style="padding:8px 12px; font-size:13px; font-weight:bold;">🗑️ Vaciar BD Libros</button>
+                    </div>
                 </div>
 
                 <!-- Formulario de Registro / Edición -->

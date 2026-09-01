@@ -3042,8 +3042,54 @@ async function eliminarProyecto(id) {
     }
 }
 
+async function solicitarPinAdminConfirmacion(mensajeOperacion) {
+    const pin = prompt(`🔐 CONFIRMACIÓN DE SEGURIDAD (ADMIN)\n\n${mensajeOperacion}\n\nIngresa el PIN de Administrador para confirmar y autorizar esta acción:`);
+    if (pin === null) return false;
+
+    const pinClean = pin.trim();
+    if (!pinClean) {
+        alert('⚠️ Debes ingresar el PIN de administrador.');
+        return false;
+    }
+
+    try {
+        const hash = await hashPin(pinClean);
+        if (typeof ADMIN_PIN_HASH !== 'undefined' && hash === ADMIN_PIN_HASH) {
+            return true;
+        } else {
+            alert('❌ PIN de Administrador incorrecto. Operación cancelada por seguridad.');
+            return false;
+        }
+    } catch (e) {
+        console.error('Error verificando PIN:', e);
+        alert('❌ Error de verificación de seguridad.');
+        return false;
+    }
+}
+
+async function vaciarBDLibros() {
+    if (!confirm('⚠️ ¿ATENCIÓN! ¿Estás seguro de ELIMINAR TODOS LOS LIBROS Y EJEMPLARES de la base de datos?\nEsta acción vaciará por completo el inventario de libros.')) return;
+
+    const autorizado = await solicitarPinAdminConfirmacion('Estás a punto de eliminar por completo la Base de Datos de Libros y Ejemplares.');
+    if (!autorizado) return;
+
+    try {
+        await tursodb.query(`DELETE FROM biblioteca_ejemplares`);
+        await tursodb.query(`DELETE FROM biblioteca_libros`);
+        alert('🗑️ Base de Datos de Libros y Ejemplares eliminada por completo.');
+        await cargarCatalogoLibros();
+    } catch (err) {
+        console.error('Error al vaciar BD de libros:', err);
+        alert('❌ Error al vaciar BD de libros: ' + err.message);
+    }
+}
+
 async function vaciarBDProyectos() {
-    if (!confirm('⚠️ ¿ATENCIÓN! ¿Estás seguro de ELIMINAR TODOS LOS PROYECTOS de la base de datos?\nEsta acción borra la BD de proyectos actual por completo para poder cargar una nueva.')) return;
+    if (!confirm('⚠️ ¿ATENCIÓN! ¿Estás seguro de ELIMINAR TODOS LOS PROYECTOS de la base de datos?\nEsta acción vaciará por completo el catálogo de proyectos.')) return;
+
+    const autorizado = await solicitarPinAdminConfirmacion('Estás a punto de eliminar por completo la Base de Datos de Proyectos.');
+    if (!autorizado) return;
+
     try {
         await tursodb.query(`DELETE FROM biblioteca_proyectos_ejemplares`);
         await tursodb.query(`DELETE FROM biblioteca_proyectos`);

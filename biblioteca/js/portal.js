@@ -1098,20 +1098,12 @@ async function cargarCatalogoProyectosPortal() {
 }
 
 function filtrarCatalogoProyectosPortal() {
-    const q = (document.getElementById('proy-portal-search-input')?.value || '').trim().toLowerCase();
     const stGestion = document.getElementById('proy-portal-filter-gestion')?.value || '';
-    const isFiltered = Boolean(q || stGestion);
+    const isFiltered = Boolean(stGestion);
 
     const filtrados = _portalCatalogoProyectos.filter(p => {
-        const matchQ = !q || (
-            p.codigo_proyecto.toLowerCase().includes(q) ||
-            p.titulo.toLowerCase().includes(q) ||
-            (p.autores || '').toLowerCase().includes(q) ||
-            (p.especialidad || '').toLowerCase().includes(q) ||
-            (p.modalidad || '').toLowerCase().includes(q)
-        );
         const matchGestion = !stGestion || String(p.gestion) === stGestion;
-        return matchQ && matchGestion;
+        return matchGestion;
     });
 
     renderCatalogoProyectosPortalAccordion(filtrados, isFiltered);

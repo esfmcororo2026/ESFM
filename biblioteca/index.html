@@ -369,9 +369,8 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                     <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
                 </div>
 
-                <!-- Buscador y Filtros -->
+                <!-- Filtros y controles de expansión -->
                 <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; align-items:center;">
-                    <input type="text" id="proy-search-input" oninput="filtrarCatalogoProyectos()" placeholder="Buscar por código (ej: 01201401), título, modalidad, autores..." style="flex:1; min-width:250px; padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
                     <select id="proy-filter-gestion" onchange="filtrarCatalogoProyectos()" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
                         <option value="">Todas las Gestiones</option>
                         <option value="2014">Gestión 2014</option>

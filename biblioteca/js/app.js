@@ -2925,24 +2925,14 @@ async function cargarCatalogoProyectos() {
 }
 
 function filtrarCatalogoProyectos() {
-    const q = document.getElementById('proy-search-input')?.value.toLowerCase().trim() || '';
     const stGestion = document.getElementById('proy-filter-gestion')?.value || '';
-
-    const isFiltered = Boolean(q || stGestion);
+    const isFiltered = Boolean(stGestion);
 
     const filtrados = catalogoProyectosCache.filter(p => {
-        const matchQ = !q || (
-            p.codigo_proyecto.toLowerCase().includes(q) ||
-            p.titulo.toLowerCase().includes(q) ||
-            (p.autores || '').toLowerCase().includes(q) ||
-            (p.especialidad || '').toLowerCase().includes(q) ||
-            (p.modalidad || '').toLowerCase().includes(q)
-        );
-
         const matchGestion = !stGestion || String(p.gestion) === stGestion;
-
-        return matchQ && matchGestion;
+        return matchGestion;
     });
+
 
     renderCatalogoProyectosAccordion(filtrados, isFiltered);
 }

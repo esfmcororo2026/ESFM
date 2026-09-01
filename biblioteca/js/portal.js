@@ -985,6 +985,7 @@ function renderCatalogoPortalPorAreas(listaLibros, isFiltered = false) {
                      style="padding:12px 16px; background:${estaExpandida ? '#f1f5f9' : '#ffffff'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
                     <div style="display:flex; align-items:center; gap:8px;">
                         <strong style="font-size:14px; color:#0f172a;">${area.cod !== 'OTRAS' ? area.cod + ' - ' : ''}${area.icon} ${area.nombre}</strong>
+                        <span class="badge badge-info" style="font-size:11px;">${totalLibros} libro(s)</span>
                     </div>
                     <span style="font-size:16px; color:#64748b; font-weight:bold;">${estaExpandida ? '▲' : '▼'}</span>
                 </div>

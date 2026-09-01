@@ -1986,6 +1986,7 @@ function renderCatalogoPorAreas(listaLibros, isFiltered = false) {
                      style="padding:13px 18px; background:${estaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
                     <div style="display:flex; align-items:center; gap:10px;">
                         <strong style="font-size:15px; color:#0f172a;">${area.cod !== 'OTRAS' ? area.cod + ' - ' : ''}${area.icon} ${area.nombre}</strong>
+                        <span class="badge badge-info" style="font-size:11px;">${totalLibros} libro(s)</span>
                     </div>
                     <span style="font-size:16px; color:#64748b; font-weight:bold;">${estaExpandida ? '▲' : '▼'}</span>
                 </div>

@@ -149,6 +149,7 @@ async function crearTablasBiblioteca() {
     `);
     try { await tursodb.query(`ALTER TABLE biblioteca_prestamo_detalles ADD COLUMN tipo_item TEXT DEFAULT 'libro'`); } catch (e) {}
     try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN tipo_item TEXT DEFAULT 'libro'`); } catch (e) {}
+    try { await tursodb.query(`ALTER TABLE biblioteca_proyectos ADD COLUMN modalidad TEXT`); } catch (e) {}
 }
 
 function toggleDropdown() {
@@ -2646,52 +2647,81 @@ function procesarArchivoProyectosExcel(event) {
             const rawJson = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
             excelParsedProyectosRows = [];
 
-            let prevRowA = '';
+            if (!rawJson || rawJson.length === 0) {
+                renderPrevisualizacionProyectosExcel();
+                return;
+            }
+
+            // Detección inteligente de columnas desde los encabezados
+            let colMap = { cod_esp: -1, num: -1, gestion: -1, titulo: -1, especialidad: -1, modalidad: -1, autores: -1 };
+            let headerRowIndex = -1;
+
+            for (let r = 0; r < Math.min(10, rawJson.length); r++) {
+                const rowCells = (rawJson[r] || []).map(c => String(c || '').toUpperCase().trim());
+                const joined = rowCells.join(' | ');
+
+                if (joined.includes('GESTION') || joined.includes('TITULO') || joined.includes('MODALIDAD') || joined.includes('COD_ESP') || joined.includes('ESPECIALIDAD')) {
+                    headerRowIndex = r;
+                    rowCells.forEach((cellVal, cIdx) => {
+                        if (cellVal.includes('COD_ESP') || cellVal.includes('COD ESP') || cellVal === 'COD') colMap.cod_esp = cIdx;
+                        else if (cellVal === 'Nº' || cellVal === 'N°' || cellVal.includes('NUM') || cellVal === 'NO') colMap.num = cIdx;
+                        else if (cellVal.includes('GESTION') || cellVal.includes('AÑO') || cellVal.includes('GESTIÓN')) colMap.gestion = cIdx;
+                        else if (cellVal.includes('TITULO') || cellVal.includes('TÍTULO') || cellVal.includes('PROYECTO')) colMap.titulo = cIdx;
+                        else if (cellVal.includes('ESPECIALIDAD')) colMap.especialidad = cIdx;
+                        else if (cellVal.includes('MODALIDAD')) colMap.modalidad = cIdx;
+                        else if (cellVal.includes('AUTOR') || cellVal.includes('INTEGRANTE') || cellVal.includes('EQUIPO')) colMap.autores = cIdx;
+                    });
+                    break;
+                }
+            }
 
             for (let i = 0; i < rawJson.length; i++) {
+                if (i === headerRowIndex) continue;
                 const row = rawJson[i];
                 if (!row || row.length === 0) continue;
 
-                const colA = String(row[0] || '').trim();
-                const colB = String(row[1] || '').trim();
-                const colC = String(row[2] || '').trim();
-                const colD = String(row[3] || '').trim();
-                const colE = String(row[4] || '').trim();
-                const colH = String(row[7] || row[6] || '').trim();
+                const getCell = (idx, fallbackIdx) => {
+                    const finalIdx = idx !== -1 ? idx : fallbackIdx;
+                    return String(row[finalIdx] || '').trim();
+                };
 
-                if (i < 3 && colA.length > 15) {
-                    prevRowA = colA;
-                    continue;
-                }
+                const rawCodEsp = getCell(colMap.cod_esp, 0);
+                const rawNum = getCell(colMap.num, 1);
+                const rawGestion = getCell(colMap.gestion, 2);
 
-                if (colA.match(/^\d+$/) && colB.match(/^\d+$/) && colC.match(/^\d{4}$/)) {
-                    const codEsp = pad2(colA);
-                    const numProj = pad2(colB);
-                    const gestion = colC;
+                if (rawCodEsp.match(/^\d+$/) && rawNum.match(/^\d+$/) && rawGestion.match(/^\d{4}$/)) {
+                    const codEsp = pad2(rawCodEsp);
+                    const numProj = pad2(rawNum);
+                    const gestion = rawGestion;
                     const codigo = `${codEsp}${gestion}${numProj}`;
 
-                    let titulo = '';
-                    if (colE.length > 10 && colE.toUpperCase() !== 'ESPECIALIDAD') {
-                        titulo = colE;
-                    } else if (colD.length > 10 && colD.toUpperCase() !== 'TITULO') {
-                        titulo = colD;
-                    } else if (prevRowA && prevRowA.length > 15) {
-                        titulo = prevRowA;
-                    } else {
-                        titulo = colE || colD || 'Proyecto de Grado';
-                    }
-                    prevRowA = '';
+                    let rawTitulo = getCell(colMap.titulo, 3);
+                    let rawEsp = getCell(colMap.especialidad, 4);
+                    let rawMod = getCell(colMap.modalidad, 5);
+                    let rawAutores = getCell(colMap.autores, 6);
 
-                    const especialidad = (colE && colE !== titulo && colE.length <= 40 && colE.toUpperCase() !== 'ESPECIALIDAD') ? colE : (colD && colD !== titulo && colD.length <= 40 && colD.toUpperCase() !== 'TITULO' ? colD : '');
-                    const autores = colH.replace(/\n/g, ', ');
+                    // Si la columna 6 estaba vacía y la 7 tenía datos para autores:
+                    if (!rawAutores && row[7]) {
+                        rawAutores = String(row[7]).trim();
+                    }
+
+                    if (rawTitulo.toUpperCase() === 'TITULO' || rawTitulo.toUpperCase() === 'TÍTULO') {
+                        continue;
+                    }
+
+                    const titulo = rawTitulo.replace(/\s+/g, ' ');
+                    const especialidad = rawEsp;
+                    const modalidad = rawMod;
+                    const autores = rawAutores.replace(/\n/g, ', ').replace(/\s+/g, ' ');
 
                     excelParsedProyectosRows.push({
                         cod_esp: codEsp,
                         gestion: gestion,
                         proyecto_num: numProj,
                         codigo_proyecto: codigo,
-                        titulo: titulo,
+                        titulo: titulo || 'Proyecto de Grado',
                         especialidad: especialidad,
+                        modalidad: modalidad,
                         autores: autores
                     });
                 }
@@ -2716,7 +2746,7 @@ function renderPrevisualizacionProyectosExcel() {
     if (!tbody) return;
 
     if (excelParsedProyectosRows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#d9534f; font-weight:bold;">⚠️ No se encontraron proyectos válidos en el Excel. Verifica las columnas Cod_Esp, Nº, GESTIÓN y TÍTULO.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#d9534f; font-weight:bold;">⚠️ No se encontraron proyectos válidos en el Excel. Verifica que contenga las columnas Cod_Esp, Nº, GESTIÓN, TÍTULO, MODALIDAD.</td></tr>';
         if (summaryContainer) summaryContainer.style.display = 'none';
         if (btnConfirm) btnConfirm.disabled = true;
         return;
@@ -2738,9 +2768,10 @@ function renderPrevisualizacionProyectosExcel() {
             <td>${p.proyecto_num}</td>
             <td><strong>${escapeHtml(p.titulo)}</strong></td>
             <td>${escapeHtml(p.especialidad || '-')}</td>
+            <td><span class="badge badge-secondary" style="background:#6c757d; color:#fff;">${escapeHtml(p.modalidad || '-')}</span></td>
             <td>${escapeHtml(p.autores || '-')}</td>
         </tr>
-    `).join('') + (excelParsedProyectosRows.length > previewLimit ? `<tr><td colspan="8" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">... y ${excelParsedProyectosRows.length - previewLimit} proyectos más (se importarán todos al confirmar).</td></tr>` : '');
+    `).join('') + (excelParsedProyectosRows.length > previewLimit ? `<tr><td colspan="9" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">... y ${excelParsedProyectosRows.length - previewLimit} proyectos más (se importarán todos al confirmar).</td></tr>` : '');
 }
 
 async function confirmarCargaMasivaProyectosExcel() {
@@ -2764,8 +2795,8 @@ async function confirmarCargaMasivaProyectosExcel() {
             const proyId = `proy-${Date.now()}-${idx}`;
 
             await tursodb.query(
-                `INSERT OR REPLACE INTO biblioteca_proyectos (id, cod_esp, gestion, proyecto_num, codigo_proyecto, titulo, especialidad, autores, cantidad_total, cantidad_disponible, estado_fisico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Bueno')`,
-                [proyId, p.cod_esp, p.gestion, p.proyecto_num, p.codigo_proyecto, p.titulo, p.especialidad, p.autores]
+                `INSERT OR REPLACE INTO biblioteca_proyectos (id, cod_esp, gestion, proyecto_num, codigo_proyecto, titulo, especialidad, modalidad, autores, cantidad_total, cantidad_disponible, estado_fisico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Bueno')`,
+                [proyId, p.cod_esp, p.gestion, p.proyecto_num, p.codigo_proyecto, p.titulo, p.especialidad, p.modalidad || '', p.autores]
             );
             countProy++;
 
@@ -2782,7 +2813,7 @@ async function confirmarCargaMasivaProyectosExcel() {
         btn.disabled = false;
         excelParsedProyectosRows = [];
         document.getElementById('excel-proyectos-file-name').textContent = '';
-        document.getElementById('excel-proyectos-preview-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">Carga completada. Selecciona un nuevo archivo si deseas continuar.</td></tr>';
+        document.getElementById('excel-proyectos-preview-tbody').innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">Carga completada. Selecciona un nuevo archivo si deseas continuar.</td></tr>';
         document.getElementById('excel-proyectos-summary-container').style.display = 'none';
 
         switchBibTab('proyectos');
@@ -2803,11 +2834,11 @@ async function cargarCatalogoProyectos() {
     const tbody = document.getElementById('proyectos-table-body');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>';
 
     const res = await tursodb.query(`SELECT * FROM biblioteca_proyectos ORDER BY gestion DESC, CAST(cod_esp AS INTEGER) ASC, CAST(proyecto_num AS INTEGER) ASC`);
     if (!res.rows || res.rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No hay proyectos registrados en el catálogo. Usa el botón de arriba o la sección de Carga Masiva para registrar proyectos.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No hay proyectos registrados en el catálogo. Usa el botón de arriba o la sección de Carga Masiva para registrar proyectos.</td></tr>';
         return;
     }
 
@@ -2830,7 +2861,7 @@ function renderTablaProyectos(lista) {
     if (!tbody) return;
 
     if (lista.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No se encontraron proyectos con los filtros seleccionados.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No se encontraron proyectos con los filtros seleccionados.</td></tr>';
         return;
     }
 
@@ -2855,6 +2886,7 @@ function renderTablaProyectos(lista) {
                 <td>${codigosList || `<span class="book-code-chip">${p.codigo_proyecto}</span>`}</td>
                 <td><strong>${p.gestion || '-'}</strong></td>
                 <td><span class="badge badge-info">${escapeHtml(p.especialidad || 'Especialidad')}</span></td>
+                <td><span class="badge badge-secondary" style="background:#6c757d; color:#fff;">${escapeHtml(p.modalidad || '-')}</span></td>
                 <td><strong>${escapeHtml(p.titulo)}</strong></td>
                 <td>${escapeHtml(p.autores || 'N/A')}</td>
                 <td><strong>${disp} / ${total}</strong></td>
@@ -2868,7 +2900,7 @@ function renderTablaProyectos(lista) {
     }).join('');
 
     if (lista.length > limit) {
-        rowsHtml += `<tr><td colspan="8" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} proyectos de ${lista.length} registrados. Usa el buscador arriba para filtrar.</td></tr>`;
+        rowsHtml += `<tr><td colspan="9" style="text-align:center; background:#fff3cd; color:#856404; font-weight:bold;">Mostrando primeros ${limit} proyectos de ${lista.length} registrados. Usa el buscador arriba para filtrar.</td></tr>`;
     }
 
     tbody.innerHTML = rowsHtml;
@@ -2882,7 +2914,8 @@ function filtrarCatalogoProyectos() {
         const matchQ = p.codigo_proyecto.toLowerCase().includes(q) ||
                        p.titulo.toLowerCase().includes(q) ||
                        (p.autores || '').toLowerCase().includes(q) ||
-                       (p.especialidad || '').toLowerCase().includes(q);
+                       (p.especialidad || '').toLowerCase().includes(q) ||
+                       (p.modalidad || '').toLowerCase().includes(q);
 
         let matchGestion = true;
         if (stGestion) matchGestion = String(p.gestion) === stGestion;
@@ -2902,6 +2935,7 @@ function abrirModalProyecto() {
     document.getElementById('proy-input-num').value = '';
     document.getElementById('proy-input-titulo').value = '';
     document.getElementById('proy-input-especialidad').value = '';
+    document.getElementById('proy-input-modalidad').value = '';
     document.getElementById('proy-input-autores').value = '';
     actualizarPrevisualizacionCodigoProyecto();
 }
@@ -2932,6 +2966,7 @@ async function guardarProyecto() {
     const num = pad2(document.getElementById('proy-input-num').value.trim());
     const titulo = document.getElementById('proy-input-titulo').value.trim();
     const especialidad = document.getElementById('proy-input-especialidad').value.trim();
+    const modalidad = document.getElementById('proy-input-modalidad').value.trim();
     const autores = document.getElementById('proy-input-autores').value.trim();
 
     if (!esp || !gestion || !num || !titulo) {
@@ -2944,8 +2979,8 @@ async function guardarProyecto() {
     try {
         if (editId) {
             await tursodb.query(
-                `UPDATE biblioteca_proyectos SET cod_esp = ?, gestion = ?, proyecto_num = ?, codigo_proyecto = ?, titulo = ?, especialidad = ?, autores = ? WHERE id = ?`,
-                [esp, gestion, num, codigoProyecto, titulo, especialidad, autores, editId]
+                `UPDATE biblioteca_proyectos SET cod_esp = ?, gestion = ?, proyecto_num = ?, codigo_proyecto = ?, titulo = ?, especialidad = ?, modalidad = ?, autores = ? WHERE id = ?`,
+                [esp, gestion, num, codigoProyecto, titulo, especialidad, modalidad, autores, editId]
             );
 
             await tursodb.query(
@@ -2957,8 +2992,8 @@ async function guardarProyecto() {
         } else {
             const proyId = `proy-${Date.now()}`;
             await tursodb.query(
-                `INSERT INTO biblioteca_proyectos (id, cod_esp, gestion, proyecto_num, codigo_proyecto, titulo, especialidad, autores, cantidad_total, cantidad_disponible, estado_fisico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Bueno')`,
-                [proyId, esp, gestion, num, codigoProyecto, titulo, especialidad, autores]
+                `INSERT INTO biblioteca_proyectos (id, cod_esp, gestion, proyecto_num, codigo_proyecto, titulo, especialidad, modalidad, autores, cantidad_total, cantidad_disponible, estado_fisico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Bueno')`,
+                [proyId, esp, gestion, num, codigoProyecto, titulo, especialidad, modalidad, autores]
             );
 
             await tursodb.query(
@@ -2989,6 +3024,7 @@ function editarProyecto(id) {
     document.getElementById('proy-input-num').value = p.proyecto_num || '';
     document.getElementById('proy-input-titulo').value = p.titulo || '';
     document.getElementById('proy-input-especialidad').value = p.especialidad || '';
+    document.getElementById('proy-input-modalidad').value = p.modalidad || '';
     document.getElementById('proy-input-autores').value = p.autores || '';
     actualizarPrevisualizacionCodigoProyecto();
 }
@@ -3003,5 +3039,18 @@ async function eliminarProyecto(id) {
     } catch (err) {
         console.error('Error al eliminar proyecto:', err);
         alert('❌ Error al eliminar: ' + err.message);
+    }
+}
+
+async function vaciarBDProyectos() {
+    if (!confirm('⚠️ ¿ATENCIÓN! ¿Estás seguro de ELIMINAR TODOS LOS PROYECTOS de la base de datos?\nEsta acción borra la BD de proyectos actual por completo para poder cargar una nueva.')) return;
+    try {
+        await tursodb.query(`DELETE FROM biblioteca_proyectos_ejemplares`);
+        await tursodb.query(`DELETE FROM biblioteca_proyectos`);
+        alert('🗑️ Base de Datos de Proyectos eliminada por completo.');
+        await cargarCatalogoProyectos();
+    } catch (err) {
+        console.error('Error al vaciar BD de proyectos:', err);
+        alert('❌ Error al vaciar BD de proyectos: ' + err.message);
     }
 }

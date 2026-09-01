@@ -366,12 +366,15 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
             <div id="tab-proyectos" class="bib-tab-content card hidden">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
                     <h3>📂 Catálogo de Proyectos de Grado / Tesis</h3>
-                    <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
+                        <button onclick="vaciarBDProyectos()" class="btn-danger" style="padding:8px 12px; font-size:13px; font-weight:bold;">🗑️ Vaciar BD Proyectos</button>
+                    </div>
                 </div>
 
                 <!-- Buscador y Filtros -->
                 <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
-                    <input type="text" id="proy-search-input" oninput="filtrarCatalogoProyectos()" placeholder="Buscar por código (ej: 01201401), título, autores..." style="flex:1; min-width:250px; padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
+                    <input type="text" id="proy-search-input" oninput="filtrarCatalogoProyectos()" placeholder="Buscar por código (ej: 01201401), título, modalidad, autores..." style="flex:1; min-width:250px; padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
                     <select id="proy-filter-gestion" onchange="filtrarCatalogoProyectos()" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
                         <option value="">Todas las Gestiones</option>
                         <option value="2014">Gestión 2014</option>
@@ -409,6 +412,10 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                             <input type="text" id="proy-input-especialidad" placeholder="Ej: Primaria / Ciencias Sociales" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
                         </div>
                         <div>
+                            <label style="font-size:12px; font-weight:bold;">MODALIDAD:</label>
+                            <input type="text" id="proy-input-modalidad" placeholder="Ej: Proyecto Socioproductivo / Tesis" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
+                        </div>
+                        <div>
                             <label style="font-size:12px; font-weight:bold;">AUTORES / INTEGRANTES:</label>
                             <input type="text" id="proy-input-autores" placeholder="Nombre(s) de los autores" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px;">
                         </div>
@@ -430,6 +437,7 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                                 <th>Código</th>
                                 <th>Gestión</th>
                                 <th>Especialidad</th>
+                                <th>Modalidad</th>
                                 <th>Título del Proyecto</th>
                                 <th>Autores / Equipo Comunitario</th>
                                 <th>Disp.</th>
@@ -438,7 +446,7 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                             </tr>
                         </thead>
                         <tbody id="proyectos-table-body">
-                            <tr><td colspan="8" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>
+                            <tr><td colspan="9" style="text-align:center; color:#666;">Cargando proyectos...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -540,8 +548,8 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                     </div>
 
                     <p style="color:#666; font-size:14px; margin-bottom:15px;">
-                        Selecciona el archivo Excel `PROYECTOS.xlsx` con la estructura: 
-                        <strong>Cod_Esp</strong> (2 dígitos), <strong>Nº</strong> (2 dígitos), <strong>GESTIÓN</strong> (Año), <strong>TÍTULO</strong>, <strong>ESPECIALIDAD</strong> y <strong>AUTORES / INTEGRANTES</strong>.
+                        Selecciona el archivo Excel `PROYECTOS.xlsx` con la estructura oficial: 
+                        <strong>Cod_Esp</strong> (2 dígitos), <strong>Nº</strong> (2 dígitos), <strong>GESTIÓN</strong> (Año), <strong>TÍTULO</strong>, <strong>ESPECIALIDAD</strong>, <strong>MODALIDAD</strong> y <strong>AUTORES / INTEGRANTES</strong>.
                     </p>
 
                     <div style="background:#f8f9fa; padding:20px; border-radius:8px; border:2px dashed #28a745; text-align:center; margin-bottom:20px;">
@@ -573,11 +581,12 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                                     <th>Nº</th>
                                     <th>Título del Proyecto</th>
                                     <th>Especialidad</th>
+                                    <th>Modalidad</th>
                                     <th>Autores / Equipo</th>
                                 </tr>
                             </thead>
                             <tbody id="excel-proyectos-preview-tbody">
-                                <tr><td colspan="8" style="text-align:center; color:#888;">Carga el archivo PROYECTOS.xlsx para ver la vista previa.</td></tr>
+                                <tr><td colspan="9" style="text-align:center; color:#888;">Carga el archivo PROYECTOS.xlsx para ver la vista previa.</td></tr>
                             </tbody>
                         </table>
                     </div>

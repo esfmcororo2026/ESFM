@@ -369,21 +369,6 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                     <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
                 </div>
 
-                <!-- Filtros y controles de expansión -->
-                <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; align-items:center;">
-                    <select id="proy-filter-gestion" onchange="filtrarCatalogoProyectos()" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px;">
-                        <option value="">Todas las Gestiones</option>
-                        <option value="2014">Gestión 2014</option>
-                        <option value="2017">Gestión 2017</option>
-                        <option value="2019">Gestión 2019</option>
-                        <option value="2022">Gestión 2022</option>
-                        <option value="2023">Gestión 2023</option>
-                        <option value="2024">Gestión 2024</option>
-                        <option value="2025">Gestión 2025</option>
-                    </select>
-                    <button onclick="expandirTodasAreasProyectos()" class="btn-secondary" style="padding:8px 12px; font-size:12px;">➕ Expandir Todo</button>
-                    <button onclick="colapsarTodasAreasProyectos()" class="btn-secondary" style="padding:8px 12px; font-size:12px;">➖ Colapsar Todo</button>
-                </div>
 
                 <!-- Formulario de Registro / Edición de Proyecto -->
                 <div id="form-proyecto-container" style="display:none; background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #ddd; margin-bottom:20px;">

@@ -832,30 +832,36 @@ function parseFecha(fechaStr) {
     return isNaN(d.getTime()) ? new Date() : d;
 }
 
-// Helper: Calcular fecha límite de devolución sumando N días hábiles (Lunes a Viernes)
-// El día de inicio cuenta como Día 1.
-// Ejemplo: Inicio=Mié 26/08, diasHabiles=3 → Día1=Mié 26, Día2=Jue 27, Día3=Vie 28 → Deadline: Vie 28/08
-function calcularFechaDevolucion(fechaInicio = new Date(), diasHabiles = 3) {
+// Helper: Calcular fecha límite de devolución sumando N horas hábiles (Lunes a Viernes)
+function calcularFechaDevolucion(fechaInicio = new Date(), duracionInput = 48) {
     let fecha = new Date(parseFecha(fechaInicio).getTime());
+    let horasHabiles = parseInt(duracionInput) || 48;
 
-    // Si el inicio cae en fin de semana, mover al Lunes siguiente (ese será el día 1)
-    while (fecha.getDay() === 0 || fecha.getDay() === 6) {
-        fecha.setDate(fecha.getDate() + 1);
+    // Si se pasa un valor en días (ej. 1, 2, 3, 5, 10), convertir a horas
+    if (horasHabiles <= 10) {
+        if (horasHabiles === 3) horasHabiles = 70;
+        else horasHabiles = horasHabiles * 24;
     }
 
-    // Avanzar día a día contando sólo los días hábiles.
-    // El día de inicio ya cuenta como día 1, así que avanzamos diasHabiles-1 veces más.
-    let diasContados = 1;
-    while (diasContados < diasHabiles) {
+    // Si el inicio cae en fin de semana, mover al Lunes a las 08:00
+    if (fecha.getDay() === 6) {       // Sábado → Lunes
+        fecha.setDate(fecha.getDate() + 2);
+        fecha.setHours(8, 0, 0, 0);
+    } else if (fecha.getDay() === 0) { // Domingo → Lunes
         fecha.setDate(fecha.getDate() + 1);
+        fecha.setHours(8, 0, 0, 0);
+    }
+
+    let horasContadas = 0;
+    while (horasContadas < horasHabiles) {
+        fecha.setTime(fecha.getTime() + 60 * 60 * 1000);
         const dia = fecha.getDay();
-        if (dia >= 1 && dia <= 5) { // Solo Lunes(1) a Viernes(5)
-            diasContados++;
+        if (dia >= 1 && dia <= 5) {
+            horasContadas++;
+        } else if (dia === 6) {
+            fecha.setTime(fecha.getTime() + 48 * 60 * 60 * 1000);
         }
     }
-
-    // Establecer el límite al final del día (23:59:59)
-    fecha.setHours(23, 59, 59, 0);
     return fecha.toISOString();
 }
 
@@ -1178,7 +1184,7 @@ function actualizarVistaCarrito() {
 
     if (countEl) countEl.textContent = cartItems.length;
 
-    const horas = daysSelectEl ? (parseInt(daysSelectEl.value) || 70) : 70;
+    const horas = daysSelectEl ? (parseInt(daysSelectEl.value) || 48) : 48;
     const fechaPrevista = calcularFechaDevolucion(new Date(), horas);
     if (deadlineEl) {
         deadlineEl.textContent = `📅 Fecha límite de devolución (${horas}h hábiles): ${formatearFechaHora(fechaPrevista)}`;
@@ -1212,7 +1218,7 @@ async function confirmarPrestamoCarrito() {
     }
 
     const daysSelectEl = document.getElementById('cart-days-select');
-    const diasHabiles = daysSelectEl ? (parseInt(daysSelectEl.value) || 3) : 3;
+    const horas = daysSelectEl ? (parseInt(daysSelectEl.value) || 48) : 48;
 
     // Capturar datos del usuario ANTES de operaciones async para evitar race conditions
     const userName = cartUser.nombre;
@@ -1220,7 +1226,7 @@ async function confirmarPrestamoCarrito() {
     const userTipo = cartUser.tipo;
 
     const fechaHoy = new Date().toISOString();
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), diasHabiles);
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), horas);
     const prestamoId = Date.now().toString();
 
     // 1. Insertar Cabecera de Préstamo
@@ -2104,7 +2110,7 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
     const disp = itemData.cantidad_disponible !== null ? itemData.cantidad_disponible : itemData.cantidad_total;
     await tursodb.query(`UPDATE ${tableCatalog} SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, disp - 1), r.libro_id]);
 
-    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nLímite devolución prevista: ${formatearFechaHora(fechaDevolucionPrevista)} (70h hábiles)`);
+    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nLímite devolución prevista: ${formatearFechaHora(fechaDevolucionPrevista)} (48h hábiles)`);
     await cargarReservas();
 }
 

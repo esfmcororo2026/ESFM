@@ -106,17 +106,23 @@ function formatearFechaHora(fechaStr) {
     }
 }
 
-// Helper calcularFechaDevolucion: suma 70 horas hábiles (Lunes a Viernes)
-function calcularFechaDevolucion(fechaInicio = new Date(), horasHabiles = 70) {
+// Helper calcularFechaDevolucion: suma N horas hábiles (Lunes a Viernes)
+function calcularFechaDevolucion(fechaInicio = new Date(), duracionInput = 48) {
     let fecha = new Date(parseFecha(fechaInicio).getTime());
+    let horasHabiles = parseInt(duracionInput) || 48;
 
-    // Si el inicio cae en fin de semana, mover al Lunes siguiente a las 00:00
+    if (horasHabiles <= 10) {
+        if (horasHabiles === 3) horasHabiles = 70;
+        else horasHabiles = horasHabiles * 24;
+    }
+
+    // Si el inicio cae en fin de semana, mover al Lunes a las 08:00
     if (fecha.getDay() === 6) {       // Sábado → Lunes
         fecha.setDate(fecha.getDate() + 2);
-        fecha.setHours(0, 0, 0, 0);
+        fecha.setHours(8, 0, 0, 0);
     } else if (fecha.getDay() === 0) { // Domingo → Lunes
         fecha.setDate(fecha.getDate() + 1);
-        fecha.setHours(0, 0, 0, 0);
+        fecha.setHours(8, 0, 0, 0);
     }
 
     let horasContadas = 0;
@@ -553,9 +559,9 @@ function actualizarVistaCarritoUsuario() {
 
     if (countEl) countEl.textContent = userCartItems.length;
 
-    const fechaPrevista = calcularFechaDevolucion(new Date(), 2);
+    const fechaPrevista = calcularFechaDevolucion(new Date(), 48);
     if (deadlineEl) {
-        deadlineEl.textContent = `Devolución estimada: ${formatearFechaHora(fechaPrevista)} (3 días hábiles)`;
+        deadlineEl.textContent = `Devolución estimada: ${formatearFechaHora(fechaPrevista)} (2 días hábiles – 48h)`;
     }
 
     if (!listEl) return;
@@ -583,7 +589,7 @@ async function confirmarSolicitudPrestamo() {
     }
 
     const fechaHoy = new Date().toISOString();
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 2);
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 48);
     const prestamoId = Date.now().toString();
 
     // 1. Insertar Cabecera de Préstamo
@@ -611,7 +617,7 @@ async function confirmarSolicitudPrestamo() {
         }
     }
 
-    alert(`✅ SOLICITUD REGISTRADA EXITOSAMENTE\nSe asignaron ${userCartItems.length} libro(s) a tu cuenta.\nLímite de devolución: ${formatearFechaHora(fechaDevolucionPrevista)} (70h hábiles)`);
+    alert(`✅ SOLICITUD REGISTRADA EXITOSAMENTE\nSe asignaron ${userCartItems.length} libro(s) a tu cuenta.\nLímite de devolución: ${formatearFechaHora(fechaDevolucionPrevista)} (48h hábiles)`);
 
     userCartItems = [];
     actualizarVistaCarritoUsuario();

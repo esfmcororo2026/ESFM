@@ -295,10 +295,7 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
             <div id="tab-catalogo" class="bib-tab-content card hidden">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
                     <h3>📚 Catálogo de Libros</h3>
-                    <div style="display:flex; gap:10px;">
-                        <button onclick="abrirModalLibro()" class="btn-primary">+ Registrar Nuevo Libro</button>
-                        <button onclick="vaciarBDLibros()" class="btn-danger" style="padding:8px 12px; font-size:13px; font-weight:bold;">🗑️ Vaciar BD Libros</button>
-                    </div>
+                    <button onclick="abrirModalLibro()" class="btn-primary">+ Registrar Nuevo Libro</button>
                 </div>
 
                 <!-- Formulario de Registro / Edición -->
@@ -369,10 +366,7 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
             <div id="tab-proyectos" class="bib-tab-content card hidden">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
                     <h3>📂 Catálogo de Proyectos de Grado / Tesis</h3>
-                    <div style="display:flex; gap:10px;">
-                        <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
-                        <button onclick="vaciarBDProyectos()" class="btn-danger" style="padding:8px 12px; font-size:13px; font-weight:bold;">🗑️ Vaciar BD Proyectos</button>
-                    </div>
+                    <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
                 </div>
 
                 <!-- Buscador y Filtros -->
@@ -491,7 +485,10 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                 <div id="import-section-libros">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
                         <h3>📚 Carga Masiva de Libros desde Excel</h3>
-                        <button onclick="descargarPlantillaExcel()" class="btn-success">📥 Descargar Plantilla Excel Ejemplo</button>
+                        <div style="display:flex; gap:10px;">
+                            <button onclick="descargarPlantillaExcel()" class="btn-success">📥 Descargar Plantilla Excel Ejemplo</button>
+                            <button onclick="vaciarBDLibros()" class="btn-danger" style="padding:8px 12px; font-size:13px; font-weight:bold;">🗑️ Vaciar BD Libros</button>
+                        </div>
                     </div>
 
                     <p style="color:#666; font-size:14px; margin-bottom:15px;">
@@ -548,6 +545,7 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                 <div id="import-section-proyectos" style="display:none;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px;">
                         <h3>📂 Carga Masiva de Proyectos (PROYECTOS.xlsx)</h3>
+                        <button onclick="vaciarBDProyectos()" class="btn-danger" style="padding:8px 12px; font-size:13px; font-weight:bold;">🗑️ Vaciar BD Proyectos</button>
                     </div>
 
                     <p style="color:#666; font-size:14px; margin-bottom:15px;">

@@ -980,7 +980,7 @@ function renderCatalogoPortalPorAreas(listaLibros, isFiltered = false) {
         }
 
         return `
-            <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; margin-bottom:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.03);">
+            <div id="area-card-portal-${area.cod}" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; margin-bottom:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.03);">
                 <div onclick="toggleAreaPortal('${area.cod}')" 
                      style="padding:12px 16px; background:${estaExpandida ? '#f1f5f9' : '#ffffff'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
                     <div style="display:flex; align-items:center; gap:8px;">
@@ -999,11 +999,21 @@ function renderCatalogoPortalPorAreas(listaLibros, isFiltered = false) {
 function toggleAreaPortal(areaCod) {
     _portalAreaExpandidaState[areaCod] = !_portalAreaExpandidaState[areaCod];
     filtrarCatalogoPortal();
+    if (_portalAreaExpandidaState[areaCod]) {
+        setTimeout(() => {
+            const el = document.getElementById(`area-card-portal-${areaCod}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
 }
 
 function cambiarPaginaAreaPortal(areaCod, nuevaPagina) {
     _portalAreaPaginasState[areaCod] = nuevaPagina;
     filtrarCatalogoPortal();
+    setTimeout(() => {
+        const el = document.getElementById(`area-card-portal-${areaCod}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
 }
 
 function expandirTodasAreasPortal() {

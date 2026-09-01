@@ -1963,7 +1963,7 @@ function renderCatalogoPorAreas(listaLibros, isFiltered = false) {
         }
 
         return `
-            <div style="background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:10px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+            <div id="area-card-${area.cod}" style="background:#ffffff; border:1px solid #cbd5e1; border-radius:10px; margin-bottom:10px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
                 <div onclick="toggleAreaCatalogo('${area.cod}')" 
                      style="padding:13px 18px; background:${estaExpandida ? '#e2e8f0' : '#f8fafc'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border-bottom:${estaExpandida ? '1px solid #cbd5e1' : 'none'}; transition:background 0.15s;">
                     <div style="display:flex; align-items:center; gap:10px;">
@@ -1982,11 +1982,21 @@ function renderCatalogoPorAreas(listaLibros, isFiltered = false) {
 function toggleAreaCatalogo(areaCod) {
     areaExpandidaState[areaCod] = !areaExpandidaState[areaCod];
     filtrarCatalogo();
+    if (areaExpandidaState[areaCod]) {
+        setTimeout(() => {
+            const el = document.getElementById(`area-card-${areaCod}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    }
 }
 
 function cambiarPaginaArea(areaCod, nuevaPagina) {
     areaPaginasState[areaCod] = nuevaPagina;
     filtrarCatalogo();
+    setTimeout(() => {
+        const el = document.getElementById(`area-card-${areaCod}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
 }
 
 function expandirTodasAreas() {

@@ -332,21 +332,85 @@ async function verificarYLimpiarReservasExpiradas() {
             `SELECT * FROM biblioteca_reservas WHERE estado = 'pendiente' AND fecha_expiracion IS NOT NULL AND fecha_expiracion < ?`,
             [ahora]
         );
-        if (!res.rows || res.rows.length === 0) return;
+        if (res.rows && res.rows.length > 0) {
+            for (const r of res.rows) {
+                await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'expirada' WHERE id = ?`, [r.id]);
+                if (r.ejemplar_id) {
+                    const isProyecto = r.tipo_item === 'proyecto';
+                    const tableEjemplares = isProyecto ? 'biblioteca_proyectos_ejemplares' : 'biblioteca_ejemplares';
 
-        for (const r of res.rows) {
-            await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'expirada' WHERE id = ?`, [r.id]);
-            if (r.ejemplar_id) {
-                await tursodb.query(
-                    `UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
-                    [r.ejemplar_id]
-                );
-                await tursodb.query(
-                    `UPDATE biblioteca_proyectos_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
-                    [r.ejemplar_id]
-                );
+                    const resPend = await tursodb.query(
+                        `SELECT * FROM biblioteca_reservas 
+                         WHERE estado = 'pendiente' 
+                           AND (ejemplar_id = ? OR libro_id = ?) 
+                           AND id != ?
+                         ORDER BY created_at ASC LIMIT 1`,
+                        [r.ejemplar_id, r.libro_id, r.id]
+                    );
+
+                    if (resPend.rows && resPend.rows.length > 0) {
+                        const resSiguiente = resPend.rows[0];
+                        const exp12h = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+                        await tursodb.query(
+                            `UPDATE biblioteca_reservas SET ejemplar_id = ?, fecha_expiracion = ? WHERE id = ?`,
+                            [r.ejemplar_id, exp12h, resSiguiente.id]
+                        );
+                    } else {
+                        await tursodb.query(
+                            `UPDATE ${tableEjemplares} SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`,
+                            [r.ejemplar_id]
+                        );
+                    }
+                }
             }
         }
+
+        // Liberar ejemplares 'reservados' huérfanos sin ninguna reserva pendiente activa
+        await tursodb.query(`
+            UPDATE biblioteca_ejemplares 
+            SET estado = 'disponible' 
+            WHERE estado = 'reservado' 
+              AND id NOT IN (
+                  SELECT ejemplar_id FROM biblioteca_reservas 
+                  WHERE estado = 'pendiente' AND ejemplar_id IS NOT NULL
+              )
+        `);
+
+        await tursodb.query(`
+            UPDATE biblioteca_proyectos_ejemplares 
+            SET estado = 'disponible' 
+            WHERE estado = 'reservado' 
+              AND id NOT IN (
+                  SELECT ejemplar_id FROM biblioteca_reservas 
+                  WHERE estado = 'pendiente' AND ejemplar_id IS NOT NULL
+              )
+        `);
+
+        // Sincronizar cantidad_disponible con ejemplares realmente disponibles
+        await tursodb.query(`
+            UPDATE biblioteca_libros 
+            SET cantidad_disponible = (
+                SELECT COUNT(*) FROM biblioteca_ejemplares 
+                WHERE biblioteca_ejemplares.libro_id = biblioteca_libros.id 
+                  AND biblioteca_ejemplares.estado = 'disponible'
+            )
+            WHERE EXISTS (
+                SELECT 1 FROM biblioteca_ejemplares WHERE biblioteca_ejemplares.libro_id = biblioteca_libros.id
+            )
+        `);
+
+        await tursodb.query(`
+            UPDATE biblioteca_proyectos 
+            SET cantidad_disponible = (
+                SELECT COUNT(*) FROM biblioteca_proyectos_ejemplares 
+                WHERE biblioteca_proyectos_ejemplares.proyecto_id = biblioteca_proyectos.id 
+                  AND biblioteca_proyectos_ejemplares.estado = 'disponible'
+            )
+            WHERE EXISTS (
+                SELECT 1 FROM biblioteca_proyectos_ejemplares WHERE biblioteca_proyectos_ejemplares.proyecto_id = biblioteca_proyectos.id
+            )
+        `);
+
     } catch (e) {
         console.error('Error al limpiar reservas expiradas:', e);
     }
@@ -767,13 +831,15 @@ function renderHistorialReservasPortal() {
 
 async function cancelarReservaUsuario(reservaId) {
     if (!confirm('¿Cancelar esta solicitud de reserva?')) return;
-    const res = await tursodb.query(`SELECT ejemplar_id FROM biblioteca_reservas WHERE id = ?`, [reservaId]);
+    const res = await tursodb.query(`SELECT * FROM biblioteca_reservas WHERE id = ?`, [reservaId]);
     await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'cancelada' WHERE id = ?`, [reservaId]);
     if (res.rows && res.rows[0] && res.rows[0].ejemplar_id) {
-        const ejemId = res.rows[0].ejemplar_id;
-        await tursodb.query(`UPDATE biblioteca_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`, [ejemId]);
-        await tursodb.query(`UPDATE biblioteca_proyectos_ejemplares SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`, [ejemId]);
+        const r = res.rows[0];
+        const isProyecto = r.tipo_item === 'proyecto';
+        const tableEjemplares = isProyecto ? 'biblioteca_proyectos_ejemplares' : 'biblioteca_ejemplares';
+        await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'disponible' WHERE id = ? AND estado = 'reservado'`, [r.ejemplar_id]);
     }
+    await verificarYLimpiarReservasExpiradas();
     await cargarMisReservas();
 }
 
@@ -843,6 +909,7 @@ let _portalProyGestionExpandidaState = {};
 let _portalProyModalidadExpandidaState = {};
 
 async function cargarCatalogoPortal() {
+    await verificarYLimpiarReservasExpiradas();
     const container = document.getElementById('catalogo-portal-areas-container');
     if (!container) return;
 
@@ -1081,6 +1148,7 @@ async function cargarCatalogoProyectosPortal() {
     container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo de proyectos...</p>';
 
     try {
+        await verificarYLimpiarReservasExpiradas();
         const res = await tursodb.query(`SELECT * FROM biblioteca_proyectos ORDER BY CAST(cod_esp AS INTEGER) ASC, gestion DESC, CAST(proyecto_num AS INTEGER) ASC`);
         _portalCatalogoProyectos = res.rows || [];
 

@@ -2381,7 +2381,7 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
     if (!confirm(`¿Aprobar reserva y crear préstamo activo para ${r.persona_nombre} (CI: ${r.persona_ci}) del ítem "${tituloMostrar}"?`)) return;
 
     const fechaHoy = new Date().toISOString();
-    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 2);
+    const fechaDevolucionPrevista = calcularFechaDevolucion(new Date(), 48);
     const prestamoId = Date.now().toString();
 
     // 1. Crear Préstamo
@@ -2403,12 +2403,15 @@ async function aprobarReservaYConvertirEnPrestamo(reservaId) {
     await tursodb.query(`UPDATE ${tableEjemplares} SET estado = 'prestado' WHERE id = ?`, [ejemId]);
     await tursodb.query(`UPDATE biblioteca_reservas SET estado = 'completada' WHERE id = ?`, [reservaId]);
 
-    // 4. Actualizar disponibilidad
-    const disp = itemData.cantidad_disponible !== null ? itemData.cantidad_disponible : itemData.cantidad_total;
-    await tursodb.query(`UPDATE ${tableCatalog} SET cantidad_disponible = ? WHERE id = ?`, [Math.max(0, disp - 1), r.libro_id]);
+    // 4. Limpiar reservas expiradas y sincronizar disponibilidad
+    await verificarYLimpiarReservasExpiradas();
 
-    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nLímite devolución prevista: ${formatearFechaHora(fechaDevolucionPrevista)} (48h hábiles)`);
+    alert(`✅ RESERVA APROBADA EXITOSAMENTE\nSe registró el préstamo activo para ${r.persona_nombre}.\nLímite devolución prevista: ${formatearFechaHora(fechaDevolucionPrevista)} (48h hábiles).\nEl préstamo ya se encuentra visible en Monitoreo de Préstamos en Tiempo Real.`);
+
     await cargarReservas();
+    if (typeof cargarMonitoreoPrestamos === 'function') {
+        await cargarMonitoreoPrestamos();
+    }
 }
 
 async function solicitarReservaLibro(libroId, titulo) {

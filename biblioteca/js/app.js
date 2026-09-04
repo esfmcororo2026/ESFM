@@ -1379,7 +1379,7 @@ async function renderTablaMonitoreo(lista) {
                 <td>
                     ${esActivo ? `
                         <button onclick="abrirModalDevolver('${p.id}')" class="btn-success" style="padding:4px 8px; font-size:12px; margin-bottom:3px;">↩️ Devolver</button>
-                        <button onclick="abrirModalRenovar('${p.id}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar (70h)</button>
+                        <button onclick="abrirModalRenovar('${p.id}')" class="btn-info" style="padding:4px 8px; font-size:12px;">🔄 Renovar (48h)</button>
                     ` : '<small style="color:#888;">Finalizado</small>'}
                 </td>
             </tr>
@@ -1638,7 +1638,7 @@ async function abrirModalRenovar(prestamoId) {
                             ? `<span class="badge badge-success">✓ Devuelto</span>` 
                             : tieneReserva 
                                 ? `<span class="badge badge-danger" title="No renovable por reservas pendientes de otros usuarios">⚠️ Reservado (No renovable)</span>` 
-                                : `<span class="badge badge-info">Renovable (+70h)</span>`}
+                                : `<span class="badge badge-info">Renovable (+48h)</span>`}
                     </div>
                 </div>
             `;
@@ -1648,7 +1648,7 @@ async function abrirModalRenovar(prestamoId) {
             <div id="modal-renovacion-overlay" class="modal-overlay">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h3>🔄 Renovación de Ejemplares (+70 horas hábiles / 3 días hábiles)</h3>
+                        <h3>🔄 Renovación de Ejemplares (+48 horas hábiles / 2 días hábiles)</h3>
                         <button class="modal-close-btn" onclick="cerrarModalRenovacion()">&times;</button>
                     </div>
                     <div class="modal-body">
@@ -1708,14 +1708,14 @@ async function procesarRenovacionSeleccionados(prestamoId, fechaDevolucionActual
             }
         }
 
-        const nuevaFecha = calcularFechaDevolucion(fechaBase, 70);
+        const nuevaFecha = calcularFechaDevolucion(fechaBase, 48);
 
         await tursodb.query(
             `UPDATE biblioteca_prestamos SET fecha_devolucion_prevista = ? WHERE id = ?`,
             [nuevaFecha, String(prestamoId)]
         );
 
-        alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nSe renovaron ${selectedIds.length} libro(s) por 70 horas hábiles (3 días hábiles adicionales).\nLa nueva fecha límite de devolución es: ${formatearFechaHora(nuevaFecha)}`);
+        alert(`✅ PRÉSTAMO RENOVADO EXITOSAMENTE\nSe renovaron ${selectedIds.length} libro(s) por 48 horas hábiles (2 días hábiles adicionales).\nLa nueva fecha límite de devolución es: ${formatearFechaHora(nuevaFecha)}`);
 
         cerrarModalRenovacion();
         if (typeof cargarMonitoreoPrestamos === 'function') await cargarMonitoreoPrestamos();

@@ -56,9 +56,17 @@ function mostrarVista(id) {
     document.getElementById('btn-volver').onclick = id === 'vista-menu' ? volverConfiguracion : () => mostrarVista('vista-menu');
     document.getElementById('hor-form-detalle').style.display = 'none';
     document.getElementById('hor-lista-container').style.display = 'none';
-    // Limpiar formulario al volver al menu o al mostrar agregar
     if (id === 'vista-menu' || id === 'vista-agregar') {
         limpiarFormulario();
+    }
+    // Recargar especialidades siempre al entrar a una vista con selector
+    if (id === 'vista-agregar') {
+        cargarEspecialidades('hor-especialidad');
+    }
+    if (id === 'vista-ver') {
+        cargarEspecialidades('ver-especialidad');
+        document.getElementById('ver-grupo-materia').style.display = 'none';
+        document.getElementById('ver-grilla').style.display = 'none';
     }
 }
 
@@ -125,11 +133,20 @@ async function cargarAnios(selEspId, selAnioId, grupoId, callback) {
         12 * 60 * 60 * 1000
     );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
-    const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
+    const aniosDB = new Set(
+        (result.rows || [])
+            .map(r => r.anio_formacion ? r.anio_formacion.trim().toUpperCase() : '')
+            .filter(Boolean)
+    );
+
+    // Siempre mostrar los 5 años estándar; priorizar los que ya existen en la BD
+    const aniosMostrar = aniosDB.size > 0
+        ? orden.filter(a => aniosDB.has(a))
+        : orden;
 
     const sel = document.getElementById(selAnioId);
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    anios.forEach(r => sel.innerHTML += `<option value="${r.anio_formacion}">${r.anio_formacion}</option>`);
+    aniosMostrar.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
     grupoAnio.style.display = 'block';
     sel.onchange = callback;
 }

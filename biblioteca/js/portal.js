@@ -301,6 +301,22 @@ async function cargarMisPrestamos() {
             return `<span class="book-code-chip ${isDevuelto ? 'devuelto' : ''}" data-tooltip="${escapeHtml(titleOnly)}" title="${escapeHtml(titleOnly)}">${d.libro_codigo}${isDevuelto ? ' ✓' : ''}</span>`;
         }).join(' ');
 
+        let tieneReservaExternas = false;
+        if (p.estado === 'activo') {
+            for (const d of detalles) {
+                if (d.estado_item !== 'devuelto') {
+                    const rCheck = await tursodb.query(
+                        `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE (libro_id = ? OR ejemplar_id = ?) AND estado = 'pendiente' AND persona_ci != ?`,
+                        [d.libro_id, d.ejemplar_id, currentUser.ci]
+                    );
+                    if (rCheck.rows && rCheck.rows[0]?.cant > 0) {
+                        tieneReservaExternas = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         let estadoBadge = '';
         if (p.estado === 'devuelto') {
             estadoBadge = '<span class="badge badge-success">Devuelto</span>';
@@ -308,6 +324,10 @@ async function cargarMisPrestamos() {
             estadoBadge = '<span class="badge badge-danger">⚠️ Vencido</span>';
         } else {
             estadoBadge = '<span class="badge badge-warning">En Préstamo</span>';
+        }
+
+        if (tieneReservaExternas) {
+            estadoBadge += `<br><small style="color:#dc2626; font-weight:bold;">⚠️ Reservado por otro lector<br>(No renovable por alta demanda)</small>`;
         }
 
         const esActivo = p.estado === 'activo';
@@ -734,25 +754,43 @@ async function cargarMisReservas() {
         if (activeRows.length === 0) {
             tbodyActive.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#888; padding:20px; font-style:italic;">No tienes reservas activas.</td></tr>';
         } else {
-            tbodyActive.innerHTML = activeRows.map(r => {
+            let activeHtmlList = [];
+            for (const r of activeRows) {
                 let estadoBadgeHtml = '';
                 if (r.fecha_expiracion) {
                     const msRestantes = new Date(r.fecha_expiracion).getTime() - Date.now();
                     if (msRestantes > 0) {
                         const hrs = Math.floor(msRestantes / (1000 * 60 * 60));
                         const mins = Math.floor((msRestantes % (1000 * 60 * 60)) / (1000 * 60));
-                        estadoBadgeHtml = `<span class="badge badge-warning">RESERVADO (12h)</span><br><small style="color:#d97706; font-weight:bold;">⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m)</small>`;
+                        estadoBadgeHtml = `<span class="badge badge-warning">LISTO PARA RECOGER (12h)</span><br><small style="color:#d97706; font-weight:bold;">⏱️ Expira: ${formatearFechaHora(r.fecha_expiracion)} (${hrs}h ${mins}m)</small>`;
                     } else {
                         estadoBadgeHtml = `<span class="badge badge-danger">EXPIRADA</span><br><small style="color:#dc2626;">Expiró el: ${formatearFechaHora(r.fecha_expiracion)}</small>`;
                     }
                 } else {
-                    estadoBadgeHtml = `<span class="badge badge-info">EN COLA DE ESPERA</span><br><small style="color:#64748b;">(Se asignará al devolver)</small>`;
+                    let fechaDevInfo = '(Se asignará al momento de la devolución)';
+                    const loanCheck = await tursodb.query(`
+                        SELECT p.fecha_devolucion_prevista
+                        FROM biblioteca_prestamo_detalles d
+                        JOIN biblioteca_prestamos p ON d.prestamo_id = p.id
+                        WHERE (d.ejemplar_id = ? OR d.libro_id = ?)
+                          AND d.estado_item = 'prestado'
+                          AND p.estado = 'activo'
+                        ORDER BY p.fecha_devolucion_prevista ASC
+                        LIMIT 1
+                    `, [r.ejemplar_id || '---', r.libro_id || '---']);
+
+                    if (loanCheck.rows && loanCheck.rows.length > 0 && loanCheck.rows[0].fecha_devolucion_prevista) {
+                        const fDev = loanCheck.rows[0].fecha_devolucion_prevista;
+                        fechaDevInfo = `📅 Podrás pasar a recogerlo desde el: <strong>${formatearFechaHora(fDev)}</strong>`;
+                    }
+
+                    estadoBadgeHtml = `<span class="badge badge-info">EN COLA (Alta Demanda)</span><br><small style="color:#0284c7; font-weight:bold;">${fechaDevInfo}</small>`;
                 }
 
                 const tituloMostrar = r.libro_titulo || r.libro_titulo_join || r.proy_titulo_join || 'Sin título';
                 const codigoMostrar = r.libro_codigo || r.ejem_codigo || r.proy_ejem_codigo || (r.area_cod ? `${pad2(r.area_cod)}${pad2(r.libro_num || '')}` : '—');
 
-                return `
+                activeHtmlList.push(`
                     <tr>
                         <td style="font-size:12px;">${formatearFechaHora(r.fecha_reserva)}</td>
                         <td><strong style="color:#0d6efd;">[${codigoMostrar}]</strong><br><span style="font-size:12px;">${safeEscapePortal(tituloMostrar)}</span></td>
@@ -761,8 +799,9 @@ async function cargarMisReservas() {
                             <button onclick="cancelarReservaUsuario('${r.id}')" class="btn-danger" style="padding:4px 8px; font-size:11px;">Cancelar</button>
                         </td>
                     </tr>
-                `;
-            }).join('');
+                `);
+            }
+            tbodyActive.innerHTML = activeHtmlList.join('');
         }
     }
 

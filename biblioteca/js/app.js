@@ -1701,6 +1701,21 @@ async function procesarRenovacionSeleccionados(prestamoId, fechaDevolucionActual
     }
 
     try {
+        for (const detId of selectedIds) {
+            const detRes = await tursodb.query(`SELECT * FROM biblioteca_prestamo_detalles WHERE id = ?`, [detId]);
+            if (detRes.rows && detRes.rows.length > 0) {
+                const d = detRes.rows[0];
+                const resCheck = await tursodb.query(
+                    `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE (libro_id = ? OR ejemplar_id = ?) AND estado = 'pendiente'`,
+                    [d.libro_id, d.ejemplar_id]
+                );
+                if (resCheck.rows && resCheck.rows[0]?.cant > 0) {
+                    alert(`⚠️ NO ES POSIBLE RENOVAR\nEl ejemplar [${d.libro_codigo}] tiene una reserva pendiente registrada por otro usuario en cola debido a la alta demanda.`);
+                    return;
+                }
+            }
+        }
+
         let fechaBase = new Date();
         if (fechaDevolucionActual && fechaDevolucionActual !== 'undefined' && fechaDevolucionActual !== 'null') {
             fechaBase = parseFecha(fechaDevolucionActual);

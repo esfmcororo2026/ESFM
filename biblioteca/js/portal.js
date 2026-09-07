@@ -947,19 +947,85 @@ let _portalProyAreaExpandidaState = {};
 let _portalProyGestionExpandidaState = {};
 let _portalProyModalidadExpandidaState = {};
 
-async function cargarCatalogoPortal() {
+const PORTAL_LOCAL_STORAGE_BOOKS_KEY = 'esfm_biblioteca_libros_cache_v2';
+const PORTAL_LOCAL_STORAGE_EJEMPLARES_KEY = 'esfm_biblioteca_ejemplares_cache_v2';
+const PORTAL_LOCAL_STORAGE_TIMESTAMP_KEY = 'esfm_biblioteca_cache_timestamp';
+
+function guardarCatalogoPortalEnLocalStorage(libros, ejemplaresMap) {
+    try {
+        if (libros) localStorage.setItem(PORTAL_LOCAL_STORAGE_BOOKS_KEY, JSON.stringify(libros));
+        if (ejemplaresMap) localStorage.setItem(PORTAL_LOCAL_STORAGE_EJEMPLARES_KEY, JSON.stringify(ejemplaresMap));
+        localStorage.setItem(PORTAL_LOCAL_STORAGE_TIMESTAMP_KEY, new Date().toISOString());
+        actualizarBadgeEstadoCachePortal();
+    } catch (e) {
+        console.warn('Error guardando catálogo portal en localStorage:', e);
+    }
+}
+
+function cargarCatalogoPortalDesdeLocalStorage() {
+    try {
+        const librosStr = localStorage.getItem(PORTAL_LOCAL_STORAGE_BOOKS_KEY);
+        const ejemStr = localStorage.getItem(PORTAL_LOCAL_STORAGE_EJEMPLARES_KEY);
+        if (librosStr) {
+            const books = JSON.parse(librosStr);
+            if (Array.isArray(books) && books.length > 0) {
+                _catalogoLibros = books;
+                if (ejemStr) _catalogoEjemplares = JSON.parse(ejemStr);
+                return true;
+            }
+        }
+    } catch (e) {
+        console.warn('Error cargando catálogo portal desde localStorage:', e);
+    }
+    return false;
+}
+
+function actualizarBadgeEstadoCachePortal() {
+    const badgeEl = document.getElementById('portal-cat-cache-badge');
+    const ts = localStorage.getItem(PORTAL_LOCAL_STORAGE_TIMESTAMP_KEY);
+    if (badgeEl) {
+        const timeStr = ts ? new Date(ts).toLocaleTimeString() : 'Ahora';
+        badgeEl.innerHTML = `⚡ LocalStorage Activo (${_catalogoLibros.length} libros - ${timeStr})`;
+    }
+}
+
+async function cargarCatalogoPortal(forceFetch = false) {
     await verificarYLimpiarReservasExpiradas();
     const container = document.getElementById('catalogo-portal-areas-container');
     if (!container) return;
 
-    if (_catalogoLibros.length === 0) {
+    // 1. Cargar instantáneamente desde LocalStorage para respuesta inmediata (0 ms)
+    let loadedFromCache = false;
+    if (!forceFetch) {
+        loadedFromCache = cargarCatalogoPortalDesdeLocalStorage();
+        if (loadedFromCache) {
+            actualizarBadgeEstadoCachePortal();
+            const inputVal = document.getElementById('portal-cat-search-title-input')?.value.trim();
+            if (inputVal) {
+                buscarLibrosPortalPorNombrePreciso();
+            } else {
+                renderCatalogoPortalPorAreas(_catalogoLibros);
+            }
+        }
+    }
+
+    if (!loadedFromCache) {
         container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo por áreas...</p>';
+    }
+
+    // 2. Traer datos frescos de la base de datos Turso
+    try {
         const libRes = await tursodb.query(
             `SELECT id, area_cod, libro_num, titulo, autor, cantidad_total, cantidad_disponible
              FROM biblioteca_libros
              ORDER BY CAST(area_cod AS INTEGER) ASC, CAST(libro_num AS INTEGER) ASC`
         );
-        _catalogoLibros = libRes.rows || [];
+        if (!libRes.rows || libRes.rows.length === 0) {
+            if (!loadedFromCache) container.innerHTML = '<p style="text-align:center; color:#888; padding:30px;">No hay libros registrados en el catálogo.</p>';
+            return;
+        }
+
+        _catalogoLibros = libRes.rows;
 
         const ejemRes = await tursodb.query(
             `SELECT libro_id, codigo_ejemplar, estado FROM biblioteca_ejemplares ORDER BY ejemplar_num ASC`
@@ -969,9 +1035,19 @@ async function cargarCatalogoPortal() {
             if (!_catalogoEjemplares[e.libro_id]) _catalogoEjemplares[e.libro_id] = [];
             _catalogoEjemplares[e.libro_id].push(e);
         });
-    }
 
-    renderCatalogoPortalPorAreas(_catalogoLibros);
+        // Guardar copia actualizada en LocalStorage
+        guardarCatalogoPortalEnLocalStorage(_catalogoLibros, _catalogoEjemplares);
+
+        const inputVal = document.getElementById('portal-cat-search-title-input')?.value.trim();
+        if (inputVal) {
+            buscarLibrosPortalPorNombrePreciso();
+        } else {
+            renderCatalogoPortalPorAreas(_catalogoLibros);
+        }
+    } catch (e) {
+        console.error('Error cargando catálogo portal desde Turso DB:', e);
+    }
 }
 
 function renderCatalogoPortalPorAreas(listaLibros, isFiltered = false) {
@@ -1159,23 +1235,86 @@ function colapsarTodasAreasPortal() {
     filtrarCatalogoPortal();
 }
 
-function filtrarCatalogoPortal() {
-    const q = (document.getElementById('catalogo-search-input')?.value || '').trim().toLowerCase();
-    if (!q) {
+function removeAccentsPortal(str) {
+    if (!str) return '';
+    return String(str)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+
+function buscarLibrosPortalPorNombrePreciso() {
+    const inputEl = document.getElementById('portal-cat-search-title-input');
+    const clearBtn = document.getElementById('btn-portal-clear-title-search');
+    const infoBar = document.getElementById('portal-cat-search-info-bar');
+
+    if (!inputEl) return;
+
+    const query = inputEl.value.trim();
+    if (clearBtn) clearBtn.style.display = query ? 'block' : 'none';
+
+    if (!query) {
+        if (infoBar) infoBar.style.display = 'none';
         renderCatalogoPortalPorAreas(_catalogoLibros, false);
         return;
     }
+
+    // Dividir la consulta en palabras individuales limpias de tildes
+    const words = removeAccentsPortal(query)
+        .split(/\s+/)
+        .map(w => w.trim())
+        .filter(w => w.length > 0);
+
+    if (words.length === 0) {
+        if (infoBar) infoBar.style.display = 'none';
+        renderCatalogoPortalPorAreas(_catalogoLibros, false);
+        return;
+    }
+
+    if (!_catalogoLibros || _catalogoLibros.length === 0) {
+        cargarCatalogoPortalDesdeLocalStorage();
+    }
+
+    // Filtrar ÚNICAMENTE por el nombre (título) del libro
+    // Coincidencia precisa: TODAS las palabras ingresadas deben estar presentes en el título
     const filtrados = _catalogoLibros.filter(b => {
-        const area = String(b.area_cod || '').toLowerCase();
-        const num = String(b.libro_num || '').toLowerCase();
-        const combo = `${pad2(area)}${pad2(num)}`;
-        const titulo = String(b.titulo || '').toLowerCase();
-        const autor = String(b.autor || '').toLowerCase();
-        if (area.includes(q) || num.includes(q) || combo.includes(q) || titulo.includes(q) || autor.includes(q)) return true;
-        const ejems = _catalogoEjemplares[b.id] || [];
-        return ejems.some(e => String(e.codigo_ejemplar || '').toLowerCase().includes(q));
+        const tituloNormalizado = removeAccentsPortal(b.titulo || '');
+        return words.every(word => tituloNormalizado.includes(word));
     });
+
+    if (infoBar) {
+        infoBar.style.display = 'block';
+        infoBar.innerHTML = `🔎 <strong>${filtrados.length}</strong> libro(s) coinciden con todas las palabras de: <em>"${safeEscapePortal(query)}"</em> <small style="color:#15803d; margin-left:8px;">⚡ (Filtrado instantáneo en LocalStorage)</small>`;
+    }
+
     renderCatalogoPortalPorAreas(filtrados, true);
+}
+
+function limpiarBuscadorNombreLibroPortal() {
+    const inputEl = document.getElementById('portal-cat-search-title-input');
+    if (inputEl) inputEl.value = '';
+    buscarLibrosPortalPorNombrePreciso();
+}
+
+async function recargarCacheLibrosPortalTurso() {
+    const infoBar = document.getElementById('portal-cat-search-info-bar');
+    if (infoBar) {
+        infoBar.style.display = 'block';
+        infoBar.innerHTML = '🔄 Sincronizando catálogo con la base de datos Turso...';
+    }
+    await cargarCatalogoPortal(true);
+    if (infoBar) {
+        infoBar.innerHTML = `✅ Catálogo actualizado y guardado en LocalStorage (${_catalogoLibros.length} libros).`;
+        setTimeout(() => {
+            if (!document.getElementById('portal-cat-search-title-input')?.value.trim()) {
+                infoBar.style.display = 'none';
+            }
+        }, 3000);
+    }
+}
+
+function filtrarCatalogoPortal() {
+    buscarLibrosPortalPorNombrePreciso();
 }
 
 // ---------- CATÁLOGO DE PROYECTOS EN EL PORTAL (ÁREA > GESTIÓN > MODALIDAD) ----------

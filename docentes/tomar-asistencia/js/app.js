@@ -41,49 +41,68 @@ function volverDocentes() {
 
 // ========== PASO 1: SELECCIÓN ==========
 async function cargarEspecialidades() {
-    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
+    let result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache('esp_all');
+        result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    }
+    if (!result.rows || result.rows.length === 0) {
+        result = await tursodb.query(`SELECT DISTINCT especialidad FROM materias ORDER BY especialidad`);
+    }
     const sel = document.getElementById('sel-especialidad');
     sel.innerHTML = '<option value="">-- Selecciona especialidad --</option>';
     (result.rows || []).forEach(row => {
-        sel.innerHTML += `<option value="${row.especialidad}">${row.especialidad}</option>`;
+        if (row.especialidad) {
+            sel.innerHTML += `<option value="${row.especialidad}">${row.especialidad}</option>`;
+        }
     });
 }
 
 async function cargarAnios() {
     const especialidad = document.getElementById('sel-especialidad').value;
     const grupoAnio = document.getElementById('grupo-anio');
+    const grupoMateria = document.getElementById('grupo-materia');
     const btnCargar = document.getElementById('btn-cargar');
     const selAnio = document.getElementById('sel-anio');
 
     if (!especialidad) {
         grupoAnio.style.display = 'none';
+        grupoMateria.style.display = 'none';
         btnCargar.style.display = 'none';
         return;
     }
 
-    const result = await tursodb.queryCached(
+    let result = await tursodb.queryCached(
         `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
         [especialidad],
         `anios_${especialidad}`,
         12 * 60 * 60 * 1000
     );
 
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache(`anios_${especialidad}`);
+        result = await tursodb.query(
+            `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
+            [especialidad]
+        );
+    }
+    if (!result.rows || result.rows.length === 0) {
+        result = await tursodb.query(
+            `SELECT DISTINCT anio_formacion FROM materias WHERE especialidad = ? ORDER BY anio_formacion`,
+            [especialidad]
+        );
+    }
+
     selAnio.innerHTML = '<option value="">-- Selecciona año --</option>';
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
     const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
     anios.forEach(row => {
-        selAnio.innerHTML += `<option value="${row.anio_formacion}">${row.anio_formacion}</option>`;
+        if (row.anio_formacion) {
+            selAnio.innerHTML += `<option value="${row.anio_formacion}">${row.anio_formacion}</option>`;
+        }
     });
 
     grupoAnio.style.display = 'block';
-    selAnio.onchange = () => {
-        if (selAnio.value) {
-            cargarMaterias();
-        } else {
-            document.getElementById('grupo-materia').style.display = 'none';
-            document.getElementById('btn-cargar').style.display = 'none';
-        }
-    };
 }
 
 async function cargarMaterias() {
@@ -93,22 +112,44 @@ async function cargarMaterias() {
     const btnCargar = document.getElementById('btn-cargar');
     const selMateria = document.getElementById('sel-materia');
 
-    const result = await tursodb.queryCached(
+    if (!especialidad || !anio) {
+        grupoMateria.style.display = 'none';
+        btnCargar.style.display = 'none';
+        return;
+    }
+
+    let result = await tursodb.queryCached(
         `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
         [especialidad, anio],
         `materias_${especialidad}_${anio}`,
         12 * 60 * 60 * 1000
     );
 
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache(`materias_${especialidad}_${anio}`);
+        result = await tursodb.query(
+            `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
+            [especialidad, anio]
+        );
+    }
+
     selMateria.innerHTML = '<option value="">-- Selecciona materia --</option>';
     (result.rows || []).forEach(m => {
-        selMateria.innerHTML += `<option value="${m.nombre}">${m.nombre}</option>`;
+        if (m.nombre) {
+            selMateria.innerHTML += `<option value="${m.nombre}">${m.nombre}</option>`;
+        }
     });
 
     grupoMateria.style.display = 'block';
-    selMateria.onchange = () => {
-        btnCargar.style.display = selMateria.value ? 'block' : 'none';
-    };
+    verificarBotonCargar();
+}
+
+function verificarBotonCargar() {
+    const materia = document.getElementById('sel-materia').value;
+    const btnCargar = document.getElementById('btn-cargar');
+    if (btnCargar) {
+        btnCargar.style.display = materia ? 'block' : 'none';
+    }
 }
 
 // ========== PASO 2: LISTA ==========
@@ -118,12 +159,20 @@ async function cargarLista() {
     const materia = document.getElementById('sel-materia').value;
     if (!especialidad || !anio || !materia) { showToast('Selecciona especialidad, año y materia', 'warning'); return; }
 
-    const result = await tursodb.queryCached(
+    let result = await tursodb.queryCached(
         `SELECT * FROM estudiantes WHERE especialidad = ? AND anio_formacion = ? ORDER BY apellido_paterno, nombre`,
         [especialidad, anio],
         `estudiantes_${especialidad}_${anio}`,
         6 * 60 * 60 * 1000
     );
+
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache(`estudiantes_${especialidad}_${anio}`);
+        result = await tursodb.query(
+            `SELECT * FROM estudiantes WHERE especialidad = ? AND anio_formacion = ? ORDER BY apellido_paterno, nombre`,
+            [especialidad, anio]
+        );
+    }
 
     if (!result.rows || result.rows.length === 0) {
         showToast('No hay estudiantes en este grupo', 'warning'); return;

@@ -42,14 +42,14 @@
 
                 <div class="form-group" id="grupo-anio" style="display:none;">
                     <label>Año de Formación</label>
-                    <select id="sel-anio">
+                    <select id="sel-anio" onchange="cargarMaterias()">
                         <option value="">-- Selecciona año --</option>
                     </select>
                 </div>
 
                 <div class="form-group" id="grupo-materia" style="display:none;">
                     <label>Materia</label>
-                    <select id="sel-materia">
+                    <select id="sel-materia" onchange="verificarBotonCargar()">
                         <option value="">-- Selecciona materia --</option>
                     </select>
                 </div>

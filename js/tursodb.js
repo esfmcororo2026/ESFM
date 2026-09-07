@@ -101,8 +101,9 @@ class TursoDB {
 
             if (cachedData && cachedTime) {
                 const age = Date.now() - parseInt(cachedTime, 10);
-                if (age < ttlMs) {
-                    return { rows: JSON.parse(cachedData), error: null, fromCache: true };
+                const parsed = JSON.parse(cachedData);
+                if (age < ttlMs && Array.isArray(parsed) && parsed.length > 0) {
+                    return { rows: parsed, error: null, fromCache: true };
                 }
             }
         } catch (e) {
@@ -111,7 +112,7 @@ class TursoDB {
 
         const result = await this.query(sql, params);
 
-        if (!result.error && result.rows) {
+        if (!result.error && result.rows && Array.isArray(result.rows) && result.rows.length > 0) {
             try {
                 localStorage.setItem(key, JSON.stringify(result.rows));
                 localStorage.setItem(timeKey, Date.now().toString());

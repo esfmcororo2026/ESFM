@@ -74,10 +74,43 @@ function limpiarFormulario() {
 
 // ========== HELPERS ==========
 async function cargarEspecialidades(selId) {
-    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
+    let result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache('esp_all');
+        result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    }
+
+    const especialidadesSet = new Set();
+    (result.rows || []).forEach(r => {
+        if (r.especialidad && r.especialidad.trim()) especialidadesSet.add(r.especialidad.trim());
+    });
+
+    const resultMat = await tursodb.query(`SELECT DISTINCT especialidad FROM materias ORDER BY especialidad`);
+    (resultMat.rows || []).forEach(r => {
+        if (r.especialidad && r.especialidad.trim()) especialidadesSet.add(r.especialidad.trim());
+    });
+
+    const defaultEspecialidades = [
+        'AGROPECUARIA PRODUCTIVA',
+        'EDUCACIÓN AGROPECUARIA',
+        'EDUCACIÓN FÍSICA Y DEPORTES',
+        'EDUCACIÓN PRIMARIA',
+        'MATEMÁTICA'
+    ];
+    if (especialidadesSet.size === 0) {
+        defaultEspecialidades.forEach(esp => especialidadesSet.add(esp));
+    }
+
     const sel = document.getElementById(selId);
+    if (!sel) return;
+    const valActual = sel.value;
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    (result.rows || []).forEach(r => sel.innerHTML += `<option value="${r.especialidad}">${r.especialidad}</option>`);
+    Array.from(especialidadesSet).sort().forEach(esp => {
+        sel.innerHTML += `<option value="${esp}">${esp}</option>`;
+    });
+    if (valActual && especialidadesSet.has(valActual)) {
+        sel.value = valActual;
+    }
 }
 
 async function cargarAnios(selEspId, selAnioId, grupoId, callback) {

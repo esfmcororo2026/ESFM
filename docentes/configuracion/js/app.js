@@ -33,6 +33,9 @@ function mostrarVista(id) {
     document.querySelectorAll('.container > div').forEach(el => el.style.display = 'none');
     document.getElementById(id).style.display = 'block';
     document.getElementById('btn-volver').onclick = id === 'vista-menu' ? volverDocentes : () => mostrarVista('vista-menu');
+    if (id === 'vista-materias') {
+        cargarEspecialidadesMaterias();
+    }
 }
 
 // ========== MATERIAS ==========
@@ -45,19 +48,35 @@ async function cargarEspecialidadesMaterias() {
 
     const especialidadesSet = new Set();
     (result.rows || []).forEach(r => {
-        if (r.especialidad) especialidadesSet.add(r.especialidad.trim());
+        if (r.especialidad && r.especialidad.trim()) especialidadesSet.add(r.especialidad.trim());
     });
 
     const resultMat = await tursodb.query(`SELECT DISTINCT especialidad FROM materias ORDER BY especialidad`);
     (resultMat.rows || []).forEach(r => {
-        if (r.especialidad) especialidadesSet.add(r.especialidad.trim());
+        if (r.especialidad && r.especialidad.trim()) especialidadesSet.add(r.especialidad.trim());
     });
 
+    const defaultEspecialidades = [
+        'AGROPECUARIA PRODUCTIVA',
+        'EDUCACIÓN AGROPECUARIA',
+        'EDUCACIÓN FÍSICA Y DEPORTES',
+        'EDUCACIÓN PRIMARIA',
+        'MATEMÁTICA'
+    ];
+    if (especialidadesSet.size === 0) {
+        defaultEspecialidades.forEach(esp => especialidadesSet.add(esp));
+    }
+
     const sel = document.getElementById('mat-especialidad');
+    if (!sel) return;
+    const valActual = sel.value;
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
     Array.from(especialidadesSet).sort().forEach(esp => {
         sel.innerHTML += `<option value="${esp}">${esp}</option>`;
     });
+    if (valActual && especialidadesSet.has(valActual)) {
+        sel.value = valActual;
+    }
 }
 
 async function cargarAniosMaterias() {

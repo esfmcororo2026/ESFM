@@ -126,27 +126,11 @@ async function cargarAnios(selEspId, selAnioId, grupoId, callback) {
     const grupoAnio = document.getElementById(grupoId);
     if (!especialidad) { grupoAnio.style.display = 'none'; return; }
 
-    const result = await tursodb.queryCached(
-        `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad],
-        `anios_${especialidad}`,
-        12 * 60 * 60 * 1000
-    );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
-    const aniosDB = new Set(
-        (result.rows || [])
-            .map(r => r.anio_formacion ? r.anio_formacion.trim().toUpperCase() : '')
-            .filter(Boolean)
-    );
-
-    // Siempre mostrar los 5 años estándar; priorizar los que ya existen en la BD
-    const aniosMostrar = aniosDB.size > 0
-        ? orden.filter(a => aniosDB.has(a))
-        : orden;
 
     const sel = document.getElementById(selAnioId);
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    aniosMostrar.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
+    orden.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
     grupoAnio.style.display = 'block';
     sel.onchange = callback;
 }

@@ -8,7 +8,6 @@ window.addEventListener('DOMContentLoaded', async function () {
     currentUser = user;
     document.querySelectorAll('.user-display-name').forEach(el => el.textContent = user.nombre);
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
-    await tursodb.initializeData();
     await cargarEspecialidades('hor-especialidad');
     await cargarEspecialidades('ver-especialidad');
 
@@ -55,6 +54,8 @@ function mostrarVista(id) {
     document.querySelectorAll('.container > div').forEach(el => el.style.display = 'none');
     document.getElementById(id).style.display = 'block';
     document.getElementById('btn-volver').onclick = id === 'vista-menu' ? volverConfiguracion : () => mostrarVista('vista-menu');
+    document.getElementById('hor-form-detalle').style.display = 'none';
+    document.getElementById('hor-lista-container').style.display = 'none';
     // Limpiar formulario al volver al menu o al mostrar agregar
     if (id === 'vista-menu' || id === 'vista-agregar') {
         limpiarFormulario();
@@ -73,7 +74,7 @@ function limpiarFormulario() {
 
 // ========== HELPERS ==========
 async function cargarEspecialidades(selId) {
-    const result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
     const sel = document.getElementById(selId);
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
     (result.rows || []).forEach(r => sel.innerHTML += `<option value="${r.especialidad}">${r.especialidad}</option>`);
@@ -84,9 +85,11 @@ async function cargarAnios(selEspId, selAnioId, grupoId, callback) {
     const grupoAnio = document.getElementById(grupoId);
     if (!especialidad) { grupoAnio.style.display = 'none'; return; }
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad]
+        [especialidad],
+        `anios_${especialidad}`,
+        12 * 60 * 60 * 1000
     );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
     const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));

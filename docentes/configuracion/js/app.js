@@ -8,7 +8,6 @@ window.addEventListener('DOMContentLoaded', async function () {
     currentUser = user;
     document.querySelectorAll('.user-display-name').forEach(el => el.textContent = user.nombre);
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
-    await tursodb.initializeData();
     await cargarEspecialidadesMaterias();
 });
 
@@ -38,7 +37,7 @@ function mostrarVista(id) {
 
 // ========== MATERIAS ==========
 async function cargarEspecialidadesMaterias() {
-    const result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
     const sel = document.getElementById('mat-especialidad');
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
     (result.rows || []).forEach(r => {
@@ -59,9 +58,11 @@ async function cargarAniosMaterias() {
 
     if (!especialidad) { grupoAnio.style.display = 'none'; return; }
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad]
+        [especialidad],
+        `anios_${especialidad}`,
+        12 * 60 * 60 * 1000
     );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
     const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
@@ -80,27 +81,33 @@ async function cargarMaterias() {
     const listaContainer = document.getElementById('mat-lista-container');
     const sinResultados = document.getElementById('mat-sin-resultados');
 
-    if (!anio) { formAgregar.style.display = 'none'; return; }
-
-    formAgregar.style.display = 'block';
-    document.getElementById('mat-nombre').value = '';
-
-    const result = await tursodb.query(
-        `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-        [especialidad, anio]
-    );
-
-    if (!result.rows || result.rows.length === 0) {
+    if (!anio) {
+        formAgregar.style.display = 'none';
         listaContainer.style.display = 'none';
-        sinResultados.style.display = 'block';
+        sinResultados.style.display = 'none';
         return;
     }
 
-    sinResultados.style.display = 'none';
-    listaContainer.style.display = 'block';
-    document.getElementById('mat-lista-titulo').textContent = `📚 Materias - ${especialidad} · ${anio} (${result.rows.length})`;
+    const result = await tursodb.queryCached(
+        `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
+        [especialidad, anio],
+        `materias_${especialidad}_${anio}`,
+        12 * 60 * 60 * 1000
+    );
 
-    renderMaterias(result.rows);
+    formAgregar.style.display = 'block';
+    const materias = result.rows || [];
+
+    if (materias.length === 0) {
+        listaContainer.style.display = 'none';
+        sinResultados.style.display = 'block';
+    } else {
+        sinResultados.style.display = 'none';
+        listaContainer.style.display = 'block';
+        const lista = document.getElementById('mat-lista');
+        lista.innerHTML = '';
+        renderMaterias(materias);
+    }
 }
 
 async function renderMaterias(materias) {
@@ -142,7 +149,6 @@ async function agregarMateria() {
 
     if (!nombre) { showToast('Ingresa el nombre de la materia', 'warning'); return; }
 
-    // Verificar duplicado
     const existe = await tursodb.query(
         `SELECT id FROM materias WHERE nombre = ? AND especialidad = ? AND anio_formacion = ?`,
         [nombre, especialidad, anio]
@@ -157,11 +163,11 @@ async function agregarMateria() {
         [id, nombre, especialidad, anio]
     );
 
+    tursodb.clearCache('materias_');
     document.getElementById('mat-nombre').value = '';
     await cargarMaterias();
 }
 
-// Permitir Enter para agregar
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && document.getElementById('mat-nombre') === document.activeElement) {
         agregarMateria();
@@ -169,7 +175,6 @@ document.addEventListener('keydown', function(e) {
 });
 
 async function eliminarMateria(id, nombre) {
-    // Verificar si tiene registros de asistencia
     const especialidad = document.getElementById('mat-especialidad').value;
     const anio = document.getElementById('mat-anio').value;
 
@@ -181,11 +186,12 @@ async function eliminarMateria(id, nombre) {
     const total = parseInt(registros.rows?.[0]?.total || 0);
 
     if (total > 0) {
-        showToast(`No se puede eliminar "${nombre}". Tiene ${total} registro(s) de asistencia asociados.`, 'error'); return;
+        showToast(`No se puede eliminar "${nombre}". Tiene ${total} registro(s) de asistencia asociados.`, 'error');
         return;
     }
 
     if (!(await showConfirm('Eliminar Materia', `¿Eliminar la materia <strong>${nombre}</strong>?`, 'error'))) return;
     await tursodb.query(`DELETE FROM materias WHERE id = ?`, [id]);
+    tursodb.clearCache('materias_');
     await cargarMaterias();
 }

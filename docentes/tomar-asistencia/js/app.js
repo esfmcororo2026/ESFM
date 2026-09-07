@@ -17,7 +17,6 @@ window.addEventListener('DOMContentLoaded', async function () {
     currentUser = user;
     document.querySelectorAll('.user-display-name').forEach(el => el.textContent = user.nombre);
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
-    await tursodb.initializeData();
     await cargarEspecialidades();
     await verificarRegistroHoy();
 });
@@ -42,7 +41,7 @@ function volverDocentes() {
 
 // ========== PASO 1: SELECCIÓN ==========
 async function cargarEspecialidades() {
-    const result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
     const sel = document.getElementById('sel-especialidad');
     sel.innerHTML = '<option value="">-- Selecciona especialidad --</option>';
     (result.rows || []).forEach(row => {
@@ -62,9 +61,11 @@ async function cargarAnios() {
         return;
     }
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad]
+        [especialidad],
+        `anios_${especialidad}`,
+        12 * 60 * 60 * 1000
     );
 
     selAnio.innerHTML = '<option value="">-- Selecciona año --</option>';
@@ -92,9 +93,11 @@ async function cargarMaterias() {
     const btnCargar = document.getElementById('btn-cargar');
     const selMateria = document.getElementById('sel-materia');
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-        [especialidad, anio]
+        [especialidad, anio],
+        `materias_${especialidad}_${anio}`,
+        12 * 60 * 60 * 1000
     );
 
     selMateria.innerHTML = '<option value="">-- Selecciona materia --</option>';
@@ -115,9 +118,11 @@ async function cargarLista() {
     const materia = document.getElementById('sel-materia').value;
     if (!especialidad || !anio || !materia) { showToast('Selecciona especialidad, año y materia', 'warning'); return; }
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT * FROM estudiantes WHERE especialidad = ? AND anio_formacion = ? ORDER BY apellido_paterno, nombre`,
-        [especialidad, anio]
+        [especialidad, anio],
+        `estudiantes_${especialidad}_${anio}`,
+        6 * 60 * 60 * 1000
     );
 
     if (!result.rows || result.rows.length === 0) {

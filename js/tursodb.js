@@ -54,25 +54,83 @@ class TursoDB {
             
             const data = await response.json();
             
-            if (data.results && data.results[0] && data.results[0].response) {
-                const result = data.results[0].response.result;
-                return {
-                    rows: result.rows?.map(row => {
-                        const obj = {};
-                        result.cols.forEach((col, i) => {
-                            const cell = row[i];
-                            obj[col.name] = (cell && cell.type !== 'null') ? (cell.value !== undefined ? cell.value : cell) : null;
-                        });
-                        return obj;
-                    }) || [],
-                    error: null
-                };
+            if (data.results && data.results[0]) {
+                if (data.results[0].type === 'error' || data.results[0].error) {
+                    const err = data.results[0].error || data.results[0];
+                    console.error('Turso DB Error:', err);
+                    return { rows: [], error: err };
+                }
+                if (data.results[0].response) {
+                    const result = data.results[0].response.result;
+                    return {
+                        rows: result.rows?.map(row => {
+                            const obj = {};
+                            result.cols.forEach((col, i) => {
+                                const cell = row[i];
+                                obj[col.name] = (cell && cell.type !== 'null') ? (cell.value !== undefined ? cell.value : cell) : null;
+                            });
+                            return obj;
+                        }) || [],
+                        error: null
+                    };
+                }
             }
             
             return { rows: [], error: null };
         } catch (error) {
             console.error('Turso query error:', error);
             return { rows: [], error };
+        }
+    }
+
+    // Consulta con Caché en localStorage para lecturas intensivas
+    async queryCached(sql, params = [], cacheKey = null, ttlMs = 24 * 60 * 60 * 1000) {
+        const key = `turso_cache_${cacheKey || (sql + '_' + JSON.stringify(params))}`;
+        const timeKey = `${key}_timestamp`;
+
+        try {
+            const cachedData = localStorage.getItem(key);
+            const cachedTime = localStorage.getItem(timeKey);
+
+            if (cachedData && cachedTime) {
+                const age = Date.now() - parseInt(cachedTime, 10);
+                if (age < ttlMs) {
+                    return { rows: JSON.parse(cachedData), error: null, fromCache: true };
+                }
+            }
+        } catch (e) {
+            console.warn('Error leyendo caché de localStorage:', e);
+        }
+
+        const result = await this.query(sql, params);
+
+        if (!result.error && result.rows) {
+            try {
+                localStorage.setItem(key, JSON.stringify(result.rows));
+                localStorage.setItem(timeKey, Date.now().toString());
+            } catch (e) {
+                console.warn('Error guardando en caché de localStorage:', e);
+            }
+        }
+
+        return result;
+    }
+
+    // Limpiar entradas de caché por patrón o completo
+    clearCache(pattern = null) {
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('turso_cache_')) {
+                    if (!pattern || k.includes(pattern)) {
+                        keysToRemove.push(k);
+                    }
+                }
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+        } catch (e) {
+            console.warn('Error limpiando caché:', e);
         }
     }
 
@@ -448,8 +506,8 @@ class TursoDB {
     }
 }
 
-// Reemplazar con TursoDB
+// Instancias globales de TursoDB
 const supabase = new TursoDB();
 const tursodb = new TursoDB();
-supabase.initializeData();
-tursodb.initializeData();
+// Nota: initializeData() ya no se ejecuta automáticamente en cada recarga para ahorrar Rows Read.
+// Solo debe llamarse en migraciones o configuración inicial.

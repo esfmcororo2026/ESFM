@@ -17,11 +17,11 @@ window.addEventListener('DOMContentLoaded', async function () {
     }
     document.querySelectorAll('.user-display-name').forEach(el => el.textContent = user.nombre);
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
-    await tursodb.initializeData();
     await crearTablasBiblioteca();
 });
 
 async function crearTablasBiblioteca() {
+    if (sessionStorage.getItem('bib_tables_ok')) return;
     await tursodb.query(`
         CREATE TABLE IF NOT EXISTS biblioteca_eventos (
             id TEXT PRIMARY KEY,
@@ -147,9 +147,8 @@ async function crearTablasBiblioteca() {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `);
-    try { await tursodb.query(`ALTER TABLE biblioteca_prestamo_detalles ADD COLUMN tipo_item TEXT DEFAULT 'libro'`); } catch (e) {}
-    try { await tursodb.query(`ALTER TABLE biblioteca_reservas ADD COLUMN tipo_item TEXT DEFAULT 'libro'`); } catch (e) {}
     try { await tursodb.query(`ALTER TABLE biblioteca_proyectos ADD COLUMN modalidad TEXT`); } catch (e) {}
+    sessionStorage.setItem('bib_tables_ok', '1');
 }
 
 function toggleDropdown() {

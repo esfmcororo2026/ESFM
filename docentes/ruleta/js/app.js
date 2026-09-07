@@ -23,7 +23,6 @@ window.addEventListener('DOMContentLoaded', async function () {
     currentUser = user;
     document.querySelectorAll('.user-display-name').forEach(el => el.textContent = user.nombre);
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
-    await tursodb.initializeData();
     await cargarTodo();
     await recuperarSesionActiva();
 });
@@ -38,16 +37,6 @@ async function recuperarSesionActiva() {
             return;
         }
         // Verificar que la sesión sigue activa en BD
-        const r = await tursodb.query(
-            `SELECT * FROM ruleta_sesiones WHERE id = ? AND activa = 1`,
-            [datos.sesionId]
-        );
-        if (!r.rows || r.rows.length === 0) {
-            localStorage.removeItem('ruleta_sesion_activa');
-            return;
-        }
-        // Restaurar sesión
-        sesionId = datos.sesionId;
         document.getElementById('sel-especialidad').value = datos.especialidad;
         cargarAnios();
         document.getElementById('sel-anio').value = datos.anio;
@@ -60,11 +49,11 @@ async function recuperarSesionActiva() {
     }
 }
 
-// Carga todo en 1 sola peticion HTTP
+// Carga todo desde caché local si está disponible (0 Rows Read)
 async function cargarTodo() {
     const [estResult, matResult] = await Promise.all([
-        tursodb.query(`SELECT id, nombre, apellido_paterno, apellido_materno, codigo_unico, especialidad, anio_formacion FROM estudiantes ORDER BY especialidad, anio_formacion, apellido_paterno`),
-        tursodb.query(`SELECT nombre, especialidad, anio_formacion FROM materias ORDER BY especialidad, anio_formacion, nombre`)
+        tursodb.queryCached(`SELECT id, nombre, apellido_paterno, apellido_materno, codigo_unico, especialidad, anio_formacion FROM estudiantes ORDER BY especialidad, anio_formacion, apellido_paterno`, [], 'ruleta_estudiantes_all', 6 * 60 * 60 * 1000),
+        tursodb.queryCached(`SELECT nombre, especialidad, anio_formacion FROM materias ORDER BY especialidad, anio_formacion, nombre`, [], 'ruleta_materias_all', 12 * 60 * 60 * 1000)
     ]);
     cacheEstudiantes = estResult.rows || [];
     cacheMaterias = matResult.rows || [];

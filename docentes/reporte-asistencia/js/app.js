@@ -15,7 +15,6 @@ window.addEventListener('DOMContentLoaded', async function () {
     currentUser = user;
     document.querySelectorAll('.user-display-name').forEach(el => el.textContent = user.nombre);
     document.querySelectorAll('.dropdown-rol').forEach(el => el.textContent = user.rol.toUpperCase());
-    await tursodb.initializeData();
     await cargarEspecialidades();
 });
 
@@ -38,7 +37,7 @@ function volverDocentes() {
 
 // ========== SELECCIÓN ==========
 async function cargarEspecialidades() {
-    const result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
     const sel = document.getElementById('sel-especialidad');
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
     (result.rows || []).forEach(r => {
@@ -58,9 +57,11 @@ async function cargarAnios() {
 
     if (!especialidad) { grupoAnio.style.display = 'none'; return; }
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad]
+        [especialidad],
+        `anios_${especialidad}`,
+        12 * 60 * 60 * 1000
     );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
     const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
@@ -82,9 +83,11 @@ async function cargarMaterias() {
 
     if (!anio) { grupoMateria.style.display = 'none'; return; }
 
-    const result = await tursodb.query(
+    const result = await tursodb.queryCached(
         `SELECT nombre FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-        [especialidad, anio]
+        [especialidad, anio],
+        `materias_nombres_${especialidad}_${anio}`,
+        12 * 60 * 60 * 1000
     );
 
     const sel = document.getElementById('sel-materia');

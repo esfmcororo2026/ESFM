@@ -349,7 +349,7 @@ async function verificarYLimpiarReservasExpiradas() {
     try {
         const ahora = new Date().toISOString();
         const res = await tursodb.query(
-            `SELECT * FROM biblioteca_reservas WHERE estado = 'pendiente' AND fecha_expiracion IS NOT NULL AND fecha_expiracion < ?`,
+            `SELECT * FROM biblioteca_reservas WHERE estado = 'pendiente' AND fecha_expiracion IS NOT NULL AND fecha_expiracion != '' AND fecha_expiracion < ?`,
             [ahora]
         );
         if (res.rows && res.rows.length > 0) {

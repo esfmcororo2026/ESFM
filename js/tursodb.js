@@ -46,7 +46,7 @@ class TursoDB {
                         type: 'execute',
                         stmt: {
                             sql: sql,
-                            args: params.map(p => ({ type: 'text', value: String(p === null ? '' : p) }))
+                            args: params.map(p => (p === null || p === undefined ? { type: 'null' } : { type: 'text', value: String(p) }))
                         }
                     }]
                 })
@@ -149,7 +149,7 @@ class TursoDB {
                 type: 'execute',
                 stmt: {
                     sql,
-                    args: params.map(p => ({ type: 'text', value: String(p === null ? '' : p) }))
+                    args: params.map(p => (p === null || p === undefined ? { type: 'null' } : { type: 'text', value: String(p) }))
                 }
             }));
 

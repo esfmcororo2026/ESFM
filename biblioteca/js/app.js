@@ -2305,7 +2305,16 @@ async function eliminarLibro(id) {
     await cargarCatalogoLibros();
 }
 
-async function verificarYLimpiarReservasExpiradas() {
+let _lastExpirationCheckTimeApp = 0;
+const EXPIRATION_CHECK_THROTTLE_MS_APP = 15 * 60 * 1000; // 15 minutos de intervalo mínimo
+
+async function verificarYLimpiarReservasExpiradas(force = false) {
+    const nowTime = Date.now();
+    if (!force && (nowTime - _lastExpirationCheckTimeApp < EXPIRATION_CHECK_THROTTLE_MS_APP)) {
+        return; // 🛑 Evitar ejecutar consultas de expiración en cada navegación si ya se verificó recientemente
+    }
+    _lastExpirationCheckTimeApp = nowTime;
+
     try {
         const ahora = new Date().toISOString();
         const res = await tursodb.query(

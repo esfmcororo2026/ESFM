@@ -268,6 +268,9 @@ function switchPortalTab(tabName) {
 
 // ---------- 3. VISTA DE MIS PRÉSTAMOS E HISTORIAL ----------
 
+let _lastExpirationCheckTime = 0;
+const EXPIRATION_CHECK_THROTTLE_MS = 15 * 60 * 1000; // 15 minutos de intervalo mínimo
+
 async function cargarMisPrestamos() {
     if (!currentUser) return;
     const tbody = document.getElementById('user-loans-tbody');
@@ -283,6 +286,19 @@ async function cargarMisPrestamos() {
     if (!res.rows || res.rows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#888; padding:30px;">No tienes préstamos registrados en tu historial.</td></tr>';
         return;
+    }
+
+    // Cargar en 1 sola consulta las reservas pendientes de otros lectores
+    const extRes = await tursodb.query(
+        `SELECT libro_id, ejemplar_id FROM biblioteca_reservas WHERE estado = 'pendiente' AND persona_ci != ?`,
+        [currentUser.ci]
+    );
+    const reservasExternasMap = new Set();
+    if (extRes.rows) {
+        extRes.rows.forEach(r => {
+            if (r.libro_id) reservasExternasMap.add(r.libro_id);
+            if (r.ejemplar_id) reservasExternasMap.add(r.ejemplar_id);
+        });
     }
 
     const ahoraIso = new Date().toISOString();
@@ -303,18 +319,9 @@ async function cargarMisPrestamos() {
 
         let tieneReservaExternas = false;
         if (p.estado === 'activo') {
-            for (const d of detalles) {
-                if (d.estado_item !== 'devuelto') {
-                    const rCheck = await tursodb.query(
-                        `SELECT COUNT(*) as cant FROM biblioteca_reservas WHERE (libro_id = ? OR ejemplar_id = ?) AND estado = 'pendiente' AND persona_ci != ?`,
-                        [d.libro_id, d.ejemplar_id, currentUser.ci]
-                    );
-                    if (rCheck.rows && rCheck.rows[0]?.cant > 0) {
-                        tieneReservaExternas = true;
-                        break;
-                    }
-                }
-            }
+            tieneReservaExternas = detalles.some(d => 
+                d.estado_item !== 'devuelto' && (reservasExternasMap.has(d.libro_id) || reservasExternasMap.has(d.ejemplar_id))
+            );
         }
 
         let estadoBadge = '';
@@ -345,7 +352,13 @@ async function cargarMisPrestamos() {
     tbody.innerHTML = rowsHtml;
 }
 
-async function verificarYLimpiarReservasExpiradas() {
+async function verificarYLimpiarReservasExpiradas(force = false) {
+    const nowTime = Date.now();
+    if (!force && (nowTime - _lastExpirationCheckTime < EXPIRATION_CHECK_THROTTLE_MS)) {
+        return; // 🛑 Evitar ejecutar consultas repetitivas de expiración si ya se verificó hace menos de 15 minutos
+    }
+    _lastExpirationCheckTime = nowTime;
+
     try {
         const ahora = new Date().toISOString();
         const res = await tursodb.query(
@@ -1576,3 +1589,29 @@ function colapsarTodasAreasProyectosPortal() {
     _portalProyModalidadExpandidaState = {};
     filtrarCatalogoProyectosPortal();
 }
+
+// CONTROL DE INACTIVIDAD Y PESTAÑA OCULTA (Protección de cuota de Turso DB)
+let _isUserActiveSession = true;
+let _userInactivityTimer = null;
+
+function registrarActividadUsuario() {
+    _isUserActiveSession = true;
+    if (_userInactivityTimer) clearTimeout(_userInactivityTimer);
+    _userInactivityTimer = setTimeout(() => {
+        _isUserActiveSession = false;
+    }, 3 * 60 * 1000); // 3 minutos sin interacción = usuario inactivo
+}
+
+['mousemove', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+    window.addEventListener(evt, registrarActividadUsuario, { passive: true });
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        _isUserActiveSession = false;
+    } else {
+        registrarActividadUsuario();
+    }
+});
+
+registrarActividadUsuario();

@@ -396,6 +396,33 @@ if (sessionStorage.getItem('esfm_admin_unlocked') === '1') {
                     <button onclick="abrirModalProyecto()" class="btn-primary">+ Registrar Nuevo Proyecto</button>
                 </div>
 
+                <!-- Recuadro Buscador Únicamente por Nombre de Proyecto (Palabra por palabra - LocalStorage Cache) -->
+                <div style="background:#f8fafc; padding:16px; border-radius:10px; border:1px solid #cbd5e1; margin-bottom:20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+                        <label for="proy-search-title-input" style="font-weight:bold; color:#0f172a; font-size:14px; display:flex; align-items:center; gap:6px;">
+                            📂 Buscar Únicamente por Nombre de Proyecto / Tesis:
+                        </label>
+                        <span id="proy-cache-badge" style="font-size:12px; color:#166534; background:#dcfce7; border:1px solid #bbf7d0; padding:4px 10px; border-radius:20px; font-weight:bold;">
+                            ⚡ LocalStorage Activo
+                        </span>
+                    </div>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <div style="position:relative; flex:1; min-width:280px;">
+                            <input type="text" id="proy-search-title-input" oninput="buscarProyectosPorNombrePreciso()" 
+                                   placeholder="Escribe el nombre del proyecto o tesis..." 
+                                   style="width:100%; padding:10px 36px 10px 14px; border:2px solid #0284c7; border-radius:8px; font-size:14px; outline:none; background:#ffffff;">
+                            <button onclick="limpiarBuscadorNombreProyecto()" id="btn-clear-proy-title-search" 
+                                    style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; font-size:16px; cursor:pointer; display:none;" title="Limpiar búsqueda">✕</button>
+                        </div>
+                        <button onclick="recargarCacheProyectosTurso()" class="btn-info" style="padding:10px 16px; font-weight:bold; font-size:13px; display:flex; align-items:center; gap:6px;" title="Actualizar datos desde la base de datos Turso">
+                            🔄 Sincronizar BD
+                        </button>
+                    </div>
+                    <div id="proy-search-info-bar" style="margin-top:10px; font-size:13px; color:#0369a1; display:none; font-weight:500;">
+                        <!-- Se llena dinámicamente -->
+                    </div>
+                </div>
+
 
                 <!-- Formulario de Registro / Edición de Proyecto -->
                 <div id="form-proyecto-container" style="display:none; background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #ddd; margin-bottom:20px;">

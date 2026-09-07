@@ -1330,9 +1330,61 @@ function filtrarCatalogoPortal() {
 
 // ---------- CATÁLOGO DE PROYECTOS EN EL PORTAL (ÁREA > GESTIÓN > MODALIDAD) ----------
 
-async function cargarCatalogoProyectosPortal() {
+const PORTAL_LOCAL_STORAGE_PROY_KEY = 'esfm_biblioteca_proyectos_cache_v2';
+const PORTAL_LOCAL_STORAGE_PROY_EJEM_KEY = 'esfm_biblioteca_proyectos_ejem_cache_v2';
+
+function guardarProyectosPortalEnLocalStorage(proyectos, ejemplaresMap) {
+    try {
+        if (proyectos) localStorage.setItem(PORTAL_LOCAL_STORAGE_PROY_KEY, JSON.stringify(proyectos));
+        if (ejemplaresMap) localStorage.setItem(PORTAL_LOCAL_STORAGE_PROY_EJEM_KEY, JSON.stringify(ejemplaresMap));
+        actualizarBadgeEstadoCacheProyectosPortal();
+    } catch (e) {
+        console.warn('Error guardando proyectos portal en localStorage:', e);
+    }
+}
+
+function cargarProyectosPortalDesdeLocalStorage() {
+    try {
+        const proyStr = localStorage.getItem(PORTAL_LOCAL_STORAGE_PROY_KEY);
+        const ejemStr = localStorage.getItem(PORTAL_LOCAL_STORAGE_PROY_EJEM_KEY);
+        if (proyStr) {
+            const proys = JSON.parse(proyStr);
+            if (Array.isArray(proys) && proys.length > 0) {
+                _portalCatalogoProyectos = proys;
+                if (ejemStr) _portalCatalogoProyectosEjemplaresMap = JSON.parse(ejemStr);
+                return true;
+            }
+        }
+    } catch (e) {
+        console.warn('Error leyendo proyectos portal desde localStorage:', e);
+    }
+    return false;
+}
+
+function actualizarBadgeEstadoCacheProyectosPortal() {
+    const badgeEl = document.getElementById('portal-proy-cache-badge');
+    if (badgeEl) {
+        badgeEl.innerHTML = `⚡ LocalStorage Activo (${_portalCatalogoProyectos.length} proyectos)`;
+    }
+}
+
+async function cargarCatalogoProyectosPortal(forceFetch = false) {
     const container = document.getElementById('proyectos-portal-accordion-container');
     if (!container) return;
+
+    if (!forceFetch) {
+        const loadedFromCache = cargarProyectosPortalDesdeLocalStorage();
+        if (loadedFromCache) {
+            actualizarBadgeEstadoCacheProyectosPortal();
+            const inputVal = document.getElementById('portal-proy-search-title-input')?.value.trim();
+            if (inputVal) {
+                buscarProyectosPortalPorNombrePreciso();
+            } else {
+                filtrarCatalogoProyectosPortal();
+            }
+            return; // 🛑 0 consultas a Turso DB
+        }
+    }
 
     container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo de proyectos...</p>';
 
@@ -1348,16 +1400,96 @@ async function cargarCatalogoProyectosPortal() {
             _portalCatalogoProyectosEjemplaresMap[e.proyecto_id].push(e);
         });
 
-        filtrarCatalogoProyectosPortal();
+        guardarProyectosPortalEnLocalStorage(_portalCatalogoProyectos, _portalCatalogoProyectosEjemplaresMap);
+
+        const inputVal = document.getElementById('portal-proy-search-title-input')?.value.trim();
+        if (inputVal) {
+            buscarProyectosPortalPorNombrePreciso();
+        } else {
+            filtrarCatalogoProyectosPortal();
+        }
     } catch (err) {
         container.innerHTML = '<p style="text-align:center; color:#dc3545; padding:30px;">❌ Error al cargar el catálogo de proyectos.</p>';
     }
 }
 
+function buscarProyectosPortalPorNombrePreciso() {
+    const inputEl = document.getElementById('portal-proy-search-title-input');
+    const clearBtn = document.getElementById('btn-portal-clear-proy-title-search');
+    const infoBar = document.getElementById('portal-proy-search-info-bar');
+
+    if (!inputEl) return;
+
+    const query = inputEl.value.trim();
+    if (clearBtn) clearBtn.style.display = query ? 'block' : 'none';
+
+    if (!query) {
+        if (infoBar) infoBar.style.display = 'none';
+        filtrarCatalogoProyectosPortal();
+        return;
+    }
+
+    const words = removeAccentsPortal(query)
+        .split(/\s+/)
+        .map(w => w.trim())
+        .filter(w => w.length > 0);
+
+    if (words.length === 0) {
+        if (infoBar) infoBar.style.display = 'none';
+        filtrarCatalogoProyectosPortal();
+        return;
+    }
+
+    if (!_portalCatalogoProyectos || _portalCatalogoProyectos.length === 0) {
+        cargarProyectosPortalDesdeLocalStorage();
+    }
+
+    const filtrados = _portalCatalogoProyectos.filter(p => {
+        const tituloNorm = removeAccentsPortal(p.titulo || '');
+        return words.every(word => tituloNorm.includes(word));
+    });
+
+    if (infoBar) {
+        infoBar.style.display = 'block';
+        infoBar.innerHTML = `🔎 <strong>${filtrados.length}</strong> proyecto(s) coinciden con todas las palabras de: <em>"${safeEscapePortal(query)}"</em> <small style="color:#15803d; margin-left:8px;">⚡ (Filtrado instantáneo en LocalStorage)</small>`;
+    }
+
+    renderCatalogoProyectosPortalAccordion(filtrados, true);
+}
+
+function limpiarBuscadorNombreProyectoPortal() {
+    const inputEl = document.getElementById('portal-proy-search-title-input');
+    if (inputEl) inputEl.value = '';
+    buscarProyectosPortalPorNombrePreciso();
+}
+
+async function recargarCacheProyectosPortalTurso() {
+    const infoBar = document.getElementById('portal-proy-search-info-bar');
+    if (infoBar) {
+        infoBar.style.display = 'block';
+        infoBar.innerHTML = '🔄 Sincronizando proyectos con la base de datos Turso...';
+    }
+    await cargarCatalogoProyectosPortal(true);
+    if (infoBar) {
+        infoBar.innerHTML = `✅ Proyectos actualizados y guardados en LocalStorage (${_portalCatalogoProyectos.length} proyectos).`;
+        setTimeout(() => {
+            if (!document.getElementById('portal-proy-search-title-input')?.value.trim()) {
+                infoBar.style.display = 'none';
+            }
+        }, 3000);
+    }
+}
+
 function filtrarCatalogoProyectosPortal() {
     const stGestion = document.getElementById('proy-portal-filter-gestion')?.value || '';
-    const isFiltered = Boolean(stGestion);
+    const inputVal = document.getElementById('portal-proy-search-title-input')?.value.trim();
 
+    if (inputVal) {
+        buscarProyectosPortalPorNombrePreciso();
+        return;
+    }
+
+    const isFiltered = Boolean(stGestion);
     const filtrados = _portalCatalogoProyectos.filter(p => {
         const matchGestion = !stGestion || String(p.gestion) === stGestion;
         return matchGestion;

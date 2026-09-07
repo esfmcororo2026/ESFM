@@ -1849,10 +1849,9 @@ async function cargarCatalogoLibros(forceFetch = false) {
     const container = document.getElementById('catalogo-areas-container');
     if (!container) return;
 
-    // 1. Cargar instantáneamente desde LocalStorage para respuesta inmediata (0 ms)
-    let loadedFromCache = false;
+    // 1. Si existe en LocalStorage y no se forzó la recarga, usar 100% la caché local (0 peticiones a Turso DB)
     if (!forceFetch) {
-        loadedFromCache = cargarCatalogoDesdeLocalStorage();
+        const loadedFromCache = cargarCatalogoDesdeLocalStorage();
         if (loadedFromCache) {
             actualizarBadgeEstadoCache();
             const inputVal = document.getElementById('cat-search-title-input')?.value.trim();
@@ -1861,18 +1860,17 @@ async function cargarCatalogoLibros(forceFetch = false) {
             } else {
                 renderCatalogoPorAreas(catalogoLibrosCache);
             }
+            return; // 🛑 Detener aquí para evitar consultas innecesarias a Turso DB
         }
     }
 
-    if (!loadedFromCache) {
-        container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo por áreas...</p>';
-    }
+    container.innerHTML = '<p style="text-align:center; color:#666; padding:30px;">Cargando catálogo desde la base de datos...</p>';
 
-    // 2. Traer la versión más reciente de la nube en Turso DB
+    // 2. Solo si no había caché o se solicitó forzar la sincronización, consultar Turso DB
     try {
         const res = await tursodb.query(`SELECT * FROM biblioteca_libros ORDER BY CAST(area_cod AS INTEGER) ASC, CAST(libro_num AS INTEGER) ASC`);
         if (!res.rows || res.rows.length === 0) {
-            if (!loadedFromCache) container.innerHTML = '<p style="text-align:center; color:#888; padding:30px;">No hay libros registrados en el catálogo.</p>';
+            container.innerHTML = '<p style="text-align:center; color:#888; padding:30px;">No hay libros registrados en el catálogo.</p>';
             return;
         }
 

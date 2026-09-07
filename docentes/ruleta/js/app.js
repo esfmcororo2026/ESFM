@@ -81,6 +81,19 @@ function volverDocentes() {
     window.location.href = '../index.html';
 }
 
+function normEsp(s) {
+    return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+function normAnio(s) {
+    const val = String(s || '').trim().toUpperCase();
+    if (val === '1' || val === '1RO' || val === 'PRIMERO') return 'PRIMERO';
+    if (val === '2' || val === '2DO' || val === 'SEGUNDO') return 'SEGUNDO';
+    if (val === '3' || val === '3RO' || val === 'TERCERO') return 'TERCERO';
+    if (val === '4' || val === '4TO' || val === 'CUARTO') return 'CUARTO';
+    if (val === '5' || val === '5TO' || val === 'QUINTO') return 'QUINTO';
+    return val;
+}
+
 // ========== SELECCIÓN (desde cache local) ==========
 function cargarAnios() {
     const especialidad = document.getElementById('sel-especialidad').value;
@@ -94,14 +107,10 @@ function cargarAnios() {
         return;
     }
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
-    const anios = [...new Set(cacheEstudiantes
-        .filter(e => e.especialidad === especialidad)
-        .map(e => e.anio_formacion))]
-        .sort((a,b) => orden.indexOf(a) - orden.indexOf(b));
-
     const sel = document.getElementById('sel-anio');
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    anios.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
+    orden.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
+
     grupoAnio.style.display = 'block';
     grupoMateria.style.display = 'none';
     btnIniciar.style.display = 'none';
@@ -112,10 +121,10 @@ function cargarMaterias() {
     const anio = document.getElementById('sel-anio').value;
     const grupoMateria = document.getElementById('grupo-materia');
     const btnIniciar = document.getElementById('btn-iniciar');
-    if (!anio) { grupoMateria.style.display = 'none'; btnIniciar.style.display = 'none'; return; }
+    if (!anio || !especialidad) { grupoMateria.style.display = 'none'; btnIniciar.style.display = 'none'; return; }
 
     const materias = cacheMaterias
-        .filter(m => m.especialidad === especialidad && m.anio_formacion === anio)
+        .filter(m => normEsp(m.especialidad) === normEsp(especialidad) && normAnio(m.anio_formacion) === normAnio(anio))
         .map(m => m.nombre);
 
     const sel = document.getElementById('sel-materia');
@@ -137,10 +146,10 @@ async function iniciarRuleta() {
     const materia = document.getElementById('sel-materia').value;
     if (!especialidad || !anio || !materia) return;
 
-    // Cargar estudiantes desde cache local
+    // Cargar estudiantes desde cache local con normalización
     estudiantes = cacheEstudiantes.filter(e =>
-        e.especialidad === especialidad && e.anio_formacion === anio
-    ).sort((a,b) => a.apellido_paterno.localeCompare(b.apellido_paterno));
+        normEsp(e.especialidad) === normEsp(especialidad) && normAnio(e.anio_formacion) === normAnio(anio)
+    ).sort((a,b) => (a.apellido_paterno || '').localeCompare(b.apellido_paterno || ''));
 
     if (estudiantes.length === 0) {
         showToast('No hay estudiantes en este grupo', 'warning'); return;

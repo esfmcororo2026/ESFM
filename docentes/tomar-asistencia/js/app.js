@@ -72,35 +72,9 @@ async function cargarAnios() {
         return;
     }
 
-    let result = await tursodb.queryCached(
-        `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad],
-        `anios_${especialidad}`,
-        12 * 60 * 60 * 1000
-    );
-
-    if (!result.rows || result.rows.length === 0) {
-        tursodb.clearCache(`anios_${especialidad}`);
-        result = await tursodb.query(
-            `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-            [especialidad]
-        );
-    }
-    if (!result.rows || result.rows.length === 0) {
-        result = await tursodb.query(
-            `SELECT DISTINCT anio_formacion FROM materias WHERE especialidad = ? ORDER BY anio_formacion`,
-            [especialidad]
-        );
-    }
-
-    selAnio.innerHTML = '<option value="">-- Selecciona año --</option>';
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
-    const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
-    anios.forEach(row => {
-        if (row.anio_formacion) {
-            selAnio.innerHTML += `<option value="${row.anio_formacion}">${row.anio_formacion}</option>`;
-        }
-    });
+    selAnio.innerHTML = '<option value="">-- Selecciona año --</option>';
+    orden.forEach(a => selAnio.innerHTML += `<option value="${a}">${a}</option>`);
 
     grupoAnio.style.display = 'block';
 }
@@ -119,17 +93,17 @@ async function cargarMaterias() {
     }
 
     let result = await tursodb.queryCached(
-        `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-        [especialidad, anio],
-        `materias_${especialidad}_${anio}`,
+        `SELECT * FROM materias WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY nombre`,
+        [especialidad, anio, anio],
+        `materias_${especialidad.trim()}_${anio.trim()}`,
         12 * 60 * 60 * 1000
     );
 
     if (!result.rows || result.rows.length === 0) {
-        tursodb.clearCache(`materias_${especialidad}_${anio}`);
+        tursodb.clearCache(`materias_${especialidad.trim()}_${anio.trim()}`);
         result = await tursodb.query(
-            `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-            [especialidad, anio]
+            `SELECT * FROM materias WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY nombre`,
+            [especialidad, anio, anio]
         );
     }
 
@@ -160,17 +134,17 @@ async function cargarLista() {
     if (!especialidad || !anio || !materia) { showToast('Selecciona especialidad, año y materia', 'warning'); return; }
 
     let result = await tursodb.queryCached(
-        `SELECT * FROM estudiantes WHERE especialidad = ? AND anio_formacion = ? ORDER BY apellido_paterno, nombre`,
-        [especialidad, anio],
-        `estudiantes_${especialidad}_${anio}`,
+        `SELECT * FROM estudiantes WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY apellido_paterno, nombre`,
+        [especialidad, anio, anio],
+        `estudiantes_${especialidad.trim()}_${anio.trim()}`,
         6 * 60 * 60 * 1000
     );
 
     if (!result.rows || result.rows.length === 0) {
-        tursodb.clearCache(`estudiantes_${especialidad}_${anio}`);
+        tursodb.clearCache(`estudiantes_${especialidad.trim()}_${anio.trim()}`);
         result = await tursodb.query(
-            `SELECT * FROM estudiantes WHERE especialidad = ? AND anio_formacion = ? ORDER BY apellido_paterno, nombre`,
-            [especialidad, anio]
+            `SELECT * FROM estudiantes WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY apellido_paterno, nombre`,
+            [especialidad, anio, anio]
         );
     }
 

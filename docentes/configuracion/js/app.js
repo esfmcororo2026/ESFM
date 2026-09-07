@@ -37,11 +37,26 @@ function mostrarVista(id) {
 
 // ========== MATERIAS ==========
 async function cargarEspecialidadesMaterias() {
-    const result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
+    let result = await tursodb.queryCached(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`, [], 'esp_all', 12 * 60 * 60 * 1000);
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache('esp_all');
+        result = await tursodb.query(`SELECT DISTINCT especialidad FROM estudiantes ORDER BY especialidad`);
+    }
+
+    const especialidadesSet = new Set();
+    (result.rows || []).forEach(r => {
+        if (r.especialidad) especialidadesSet.add(r.especialidad.trim());
+    });
+
+    const resultMat = await tursodb.query(`SELECT DISTINCT especialidad FROM materias ORDER BY especialidad`);
+    (resultMat.rows || []).forEach(r => {
+        if (r.especialidad) especialidadesSet.add(r.especialidad.trim());
+    });
+
     const sel = document.getElementById('mat-especialidad');
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    (result.rows || []).forEach(r => {
-        sel.innerHTML += `<option value="${r.especialidad}">${r.especialidad}</option>`;
+    Array.from(especialidadesSet).sort().forEach(esp => {
+        sel.innerHTML += `<option value="${esp}">${esp}</option>`;
     });
 }
 
@@ -58,18 +73,10 @@ async function cargarAniosMaterias() {
 
     if (!especialidad) { grupoAnio.style.display = 'none'; return; }
 
-    const result = await tursodb.queryCached(
-        `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad],
-        `anios_${especialidad}`,
-        12 * 60 * 60 * 1000
-    );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
-    const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
-
     const sel = document.getElementById('mat-anio');
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    anios.forEach(r => sel.innerHTML += `<option value="${r.anio_formacion}">${r.anio_formacion}</option>`);
+    orden.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
 
     grupoAnio.style.display = 'block';
 }
@@ -81,19 +88,27 @@ async function cargarMaterias() {
     const listaContainer = document.getElementById('mat-lista-container');
     const sinResultados = document.getElementById('mat-sin-resultados');
 
-    if (!anio) {
+    if (!anio || !especialidad) {
         formAgregar.style.display = 'none';
         listaContainer.style.display = 'none';
         sinResultados.style.display = 'none';
         return;
     }
 
-    const result = await tursodb.queryCached(
-        `SELECT * FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-        [especialidad, anio],
-        `materias_${especialidad}_${anio}`,
+    let result = await tursodb.queryCached(
+        `SELECT * FROM materias WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY nombre`,
+        [especialidad, anio, anio],
+        `materias_${especialidad.trim()}_${anio.trim()}`,
         12 * 60 * 60 * 1000
     );
+
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache(`materias_${especialidad.trim()}_${anio.trim()}`);
+        result = await tursodb.query(
+            `SELECT * FROM materias WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY nombre`,
+            [especialidad, anio, anio]
+        );
+    }
 
     formAgregar.style.display = 'block';
     const materias = result.rows || [];
@@ -104,8 +119,6 @@ async function cargarMaterias() {
     } else {
         sinResultados.style.display = 'none';
         listaContainer.style.display = 'block';
-        const lista = document.getElementById('mat-lista');
-        lista.innerHTML = '';
         renderMaterias(materias);
     }
 }

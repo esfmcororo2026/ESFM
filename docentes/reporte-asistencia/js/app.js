@@ -57,18 +57,10 @@ async function cargarAnios() {
 
     if (!especialidad) { grupoAnio.style.display = 'none'; return; }
 
-    const result = await tursodb.queryCached(
-        `SELECT DISTINCT anio_formacion FROM estudiantes WHERE especialidad = ? ORDER BY anio_formacion`,
-        [especialidad],
-        `anios_${especialidad}`,
-        12 * 60 * 60 * 1000
-    );
     const orden = ['PRIMERO','SEGUNDO','TERCERO','CUARTO','QUINTO'];
-    const anios = (result.rows || []).sort((a,b) => orden.indexOf(a.anio_formacion) - orden.indexOf(b.anio_formacion));
-
     const sel = document.getElementById('sel-anio');
     sel.innerHTML = '<option value="">-- Selecciona --</option>';
-    anios.forEach(r => sel.innerHTML += `<option value="${r.anio_formacion}">${r.anio_formacion}</option>`);
+    orden.forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
     grupoAnio.style.display = 'block';
 }
 
@@ -81,19 +73,29 @@ async function cargarMaterias() {
     btnGenerar.style.display = 'none';
     document.getElementById('reporte-container').style.display = 'none';
 
-    if (!anio) { grupoMateria.style.display = 'none'; return; }
+    if (!anio || !especialidad) { grupoMateria.style.display = 'none'; return; }
 
-    const result = await tursodb.queryCached(
-        `SELECT nombre FROM materias WHERE especialidad = ? AND anio_formacion = ? ORDER BY nombre`,
-        [especialidad, anio],
-        `materias_nombres_${especialidad}_${anio}`,
+    let result = await tursodb.queryCached(
+        `SELECT nombre FROM materias WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY nombre`,
+        [especialidad, anio, anio],
+        `materias_nombres_${especialidad.trim()}_${anio.trim()}`,
         12 * 60 * 60 * 1000
     );
+
+    if (!result.rows || result.rows.length === 0) {
+        tursodb.clearCache(`materias_nombres_${especialidad.trim()}_${anio.trim()}`);
+        result = await tursodb.query(
+            `SELECT nombre FROM materias WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO')) ORDER BY nombre`,
+            [especialidad, anio, anio]
+        );
+    }
 
     const sel = document.getElementById('sel-materia');
     sel.innerHTML = '<option value="">-- Selecciona materia --</option>';
     (result.rows || []).forEach(m => {
-        sel.innerHTML += `<option value="${m.nombre}">${m.nombre}</option>`;
+        if (m.nombre) {
+            sel.innerHTML += `<option value="${m.nombre}">${m.nombre}</option>`;
+        }
     });
 
     grupoMateria.style.display = 'block';
@@ -115,9 +117,9 @@ async function generarReporte() {
     // 1. Estudiantes del grupo
     const estResult = await tursodb.query(
         `SELECT id, nombre, apellido_paterno, apellido_materno, codigo_unico
-         FROM estudiantes WHERE especialidad = ? AND anio_formacion = ?
+         FROM estudiantes WHERE UPPER(TRIM(especialidad)) = UPPER(TRIM(?)) AND (UPPER(TRIM(anio_formacion)) = UPPER(TRIM(?)) OR (anio_formacion = '4' AND ? = 'CUARTO'))
          ORDER BY apellido_paterno, nombre`,
-        [especialidad, anio]
+        [especialidad, anio, anio]
     );
     if (!estResult.rows || estResult.rows.length === 0) {
         alert('No hay estudiantes en este grupo'); return;

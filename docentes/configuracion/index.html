@@ -36,6 +36,11 @@
                         <h3>Materias</h3>
                         <p>Gestionar materias por especialidad y año</p>
                     </div>
+                    <div class="module-card" onclick="mostrarVista('vista-estudiantes')">
+                        <div class="module-icon">🎓</div>
+                        <h3>Estudiantes</h3>
+                        <p>Registrar estudiantes por especialidad y año</p>
+                    </div>
                     <div class="module-card" onclick="window.location.href='horarios/index.html'">
                         <div class="module-icon">🕐</div>
                         <h3>Horarios</h3>
@@ -86,6 +91,65 @@
 
                 <div id="mat-sin-resultados" style="display:none;" class="card">
                     <p style="text-align:center; color:#666;">📭 No hay materias registradas para este grupo</p>
+                </div>
+
+                <button onclick="mostrarVista('vista-menu')" class="btn-secondary btn-full" style="margin-top:15px;">← Volver</button>
+            </div>
+
+            <!-- VISTA 3: Gestión de estudiantes -->
+            <div id="vista-estudiantes" style="display:none;">
+                <div class="card">
+                    <h2>🎓 Gestión de Estudiantes</h2>
+                    <p class="subtitle">Registra los estudiantes por especialidad y año de formación</p>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Especialidad</label>
+                            <select id="est-especialidad" onchange="cargarAniosEstudiantes()">
+                                <option value="">-- Selecciona --</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="est-grupo-anio" style="display:none;">
+                            <label>Año de Formación</label>
+                            <select id="est-anio" onchange="cargarEstudiantes()">
+                                <option value="">-- Selecciona --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="est-form-agregar" style="display:none;">
+                        <hr style="margin:15px 0; border:none; border-top:1px solid #eee;">
+                        <p style="font-weight:600; color:#444; margin-bottom:10px; font-size:14px;">➕ Agregar Estudiante</p>
+                        <div class="form-group">
+                            <label>Apellido Paterno</label>
+                            <input type="text" id="est-apellido-paterno" placeholder="Ej: MAMANI" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Apellido Materno</label>
+                            <input type="text" id="est-apellido-materno" placeholder="Ej: QUISPE (opcional)" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Nombre(s)</label>
+                            <input type="text" id="est-nombre" placeholder="Ej: JUAN CARLOS" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;">
+                        </div>
+                        <div class="form-group">
+                            <label>CI / Código</label>
+                            <div class="input-row">
+                                <input type="text" id="est-ci" placeholder="Ej: 12345678">
+                                <button onclick="agregarEstudiante()" class="btn-primary">+ Agregar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lista de estudiantes -->
+                <div id="est-lista-container" style="display:none;">
+                    <h3 id="est-lista-titulo" style="color:white; margin-bottom:12px;"></h3>
+                    <div id="est-lista"></div>
+                </div>
+
+                <div id="est-sin-resultados" style="display:none;" class="card">
+                    <p style="text-align:center; color:#666;">📭 No hay estudiantes registrados en este grupo</p>
                 </div>
 
                 <button onclick="mostrarVista('vista-menu')" class="btn-secondary btn-full" style="margin-top:15px;">← Volver</button>

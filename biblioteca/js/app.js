@@ -929,13 +929,13 @@ async function buscarUsuarioCarrito() {
     if (!ci) { alert('Ingresa un CI o código único'); return; }
 
     infoEl.innerHTML = '<p style="color:#666;">Buscando usuario...</p>';
-    cartUser = null;
+    let userFound = null;
 
     // 1. Buscar estudiante
     const estRes = await tursodb.query(`SELECT * FROM estudiantes WHERE dni = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
     if (estRes.rows && estRes.rows.length > 0) {
         const est = estRes.rows[0];
-        cartUser = {
+        userFound = {
             ci: est.dni || est.codigo_unico,
             nombre: `${est.nombre} ${est.apellido_paterno} ${est.apellido_materno || ''}`.trim(),
             tipo: 'estudiante',
@@ -944,11 +944,11 @@ async function buscarUsuarioCarrito() {
     }
 
     // 2. Buscar personal administrativo
-    if (!cartUser) {
+    if (!userFound) {
         const admRes = await tursodb.query(`SELECT * FROM administrativos WHERE dni = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
         if (admRes.rows && admRes.rows.length > 0) {
             const adm = admRes.rows[0];
-            cartUser = {
+            userFound = {
                 ci: adm.dni || adm.codigo_unico,
                 nombre: `${adm.nombre} ${adm.apellido_paterno} ${adm.apellido_materno || ''}`.trim(),
                 tipo: 'personal',
@@ -958,30 +958,33 @@ async function buscarUsuarioCarrito() {
     }
 
     // 3. Buscar en tabla usuarios general
-    if (!cartUser) {
+    if (!userFound) {
         const usrRes = await tursodb.query(`SELECT * FROM usuarios WHERE ci = ? OR codigo_unico = ? LIMIT 1`, [ci, ci]);
         if (usrRes.rows && usrRes.rows.length > 0) {
             const u = usrRes.rows[0];
-            cartUser = {
+            userFound = {
                 ci: u.ci || u.codigo_unico,
                 nombre: `${u.nombre} ${u.apellido_paterno || ''} ${u.apellido_materno || ''}`.trim(),
                 tipo: 'usuario',
-                detalle: `👤 ${u.rol.toUpperCase()}`
+                detalle: `👤 ${(u.rol || 'usuario').toUpperCase()}`
             };
         }
     }
 
-    if (!cartUser) {
+    if (!userFound) {
+        cartUser = null;
         infoEl.innerHTML = `<span style="color:#dc3545;">❌ No se encontró persona con CI/Código: <strong>${ci}</strong></span>`;
         return;
     }
+
+    cartUser = userFound;
 
     // Consultar préstamos activos previos del usuario
     const prevLoans = await tursodb.query(
         `SELECT COUNT(*) as cant FROM biblioteca_prestamos WHERE persona_ci = ? AND estado = 'activo'`,
         [cartUser.ci]
     );
-    const cantActivos = prevLoans.rows && prevLoans.rows[0] ? prevLoans.rows[0].cant : 0;
+    const cantActivos = (prevLoans.rows && prevLoans.rows[0]) ? parseInt(prevLoans.rows[0].cant || 0, 10) : 0;
 
     infoEl.innerHTML = `
         <div style="background:#e3f2fd; padding:10px; border-radius:6px; border:1px solid #90caf9;">

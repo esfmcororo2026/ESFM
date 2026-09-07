@@ -51,13 +51,20 @@ class TursoDB {
                     }]
                 })
             });
-            
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error(`Turso HTTP Error (${response.status}):`, errText);
+                return { rows: [], error: { message: `HTTP ${response.status}: ${errText}` } };
+            }
+
             const data = await response.json();
             
             if (data.results && data.results[0]) {
                 if (data.results[0].type === 'error' || data.results[0].error) {
                     const err = data.results[0].error || data.results[0];
-                    console.error('Turso DB Error:', err);
+                    const msg = err.message || err.error || JSON.stringify(err);
+                    console.error('Turso DB Error:', msg);
                     return { rows: [], error: err };
                 }
                 if (data.results[0].response) {
